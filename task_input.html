@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>低空设备选型 - 任务输入</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; padding: 40px 20px; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 40px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+        h1 { color: #1a2b4c; font-size: 28px; border-bottom: 4px solid #2a7de1; padding-bottom: 15px; margin-bottom: 30px; }
+        .form-group { margin-bottom: 25px; }
+        label { display: block; font-weight: 600; margin-bottom: 8px; color: #2c3e50; font-size: 15px; }
+        input, select, textarea { width: 100%; padding: 12px 15px; border: 2px solid #e0e4e8; border-radius: 10px; font-size: 16px; transition: all 0.3s; }
+        input:focus, select:focus, textarea:focus { border-color: #2a7de1; outline: none; box-shadow: 0 0 0 4px rgba(42,125,225,0.1); }
+        textarea { min-height: 90px; resize: vertical; font-family: inherit; }
+        .row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .btn { background: #2a7de1; color: white; border: none; padding: 16px 30px; border-radius: 10px; font-size: 18px; font-weight: 600; cursor: pointer; width: 100%; transition: background 0.3s; }
+        .btn:hover { background: #1a5fb4; }
+        .hint { font-size: 13px; color: #7f8c8d; margin-top: 6px; }
+        .tag { background: #e8ecf1; padding: 4px 14px; border-radius: 20px; font-size: 13px; display: inline-block; margin-right: 6px; cursor: pointer; }
+        .tag:hover { background: #d0d7e0; }
+        .required { color: #e74c3c; margin-left: 4px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚁 低空任务设备选型</h1>
+        <p style="color: #5d6d7e; margin-bottom: 25px;">输入任务需求，系统将基于真实设备数据库智能匹配</p>
+
+        <form onsubmit="event.preventDefault(); window.location.href='requirement_confirmation.html';">
+            <div class="form-group">
+                <label>📝 任务描述</label>
+                <textarea id="taskDesc" placeholder="例如：电力巡检，需要热成像和RTK定位，续航≥45分钟，载荷≥2kg，预算5万元"></textarea>
+                <div class="hint">
+                    💡 快速填充：
+                    <span class="tag" onclick="fillExample('电力巡检')">电力巡检</span>
+                    <span class="tag" onclick="fillExample('农业测绘')">农业测绘</span>
+                    <span class="tag" onclick="fillExample('公共安全')">公共安全</span>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="form-group">
+                    <label>💰 预算 <span class="required">*</span></label>
+                    <input type="number" id="budget" value="50000" min="0" step="1000">
+                </div>
+                <div class="form-group">
+                    <label>⏱️ 最低续航 <span class="required">*</span></label>
+                    <input type="number" id="flightTime" value="45" min="0" step="5">
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="form-group">
+                    <label>📦 最大载荷 <span class="required">*</span></label>
+                    <input type="number" id="payload" value="2.0" min="0" step="0.1">
+                </div>
+                <div class="form-group">
+                    <label>🎯 优先目标</label>
+                    <select id="priority">
+                        <option value="balanced">均衡</option>
+                        <option value="lightweight">轻量化</option>
+                        <option value="longflight">长续航</option>
+                        <option value="highpayload">大载重</option>
+                        <option value="lowcost">低成本</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="form-group">
+                    <label>🔧 必需功能</label>
+                    <select id="functions" multiple style="height: 80px;">
+                        <option value="热成像">热成像</option>
+                        <option value="RTK定位">RTK定位</option>
+                        <option value="激光测距">激光测距</option>
+                        <option value="可见光变焦">可见光变焦</option>
+                        <option value="多光谱">多光谱</option>
+                        <option value="激光雷达">激光雷达</option>
+                    </select>
+                    <div class="hint">按住 Ctrl/Cmd 可多选</div>
+                </div>
+                <div class="form-group">
+                    <label>🌦️ 工作环境</label>
+                    <select id="environment">
+                        <option value="general">通用</option>
+                        <option value="outdoor">室外</option>
+                        <option value="indoor">室内/狭窄</option>
+                        <option value="highaltitude">高海拔</option>
+                        <option value="rain">雨雾</option>
+                    </select>
+                </div>
+            </div>
+
+            <button type="submit" class="btn">🚀 开始分析</button>
+        </form>
+    </div>
+
+    <script>
+        function fillExample(type) {
+            const data = {
+                '电力巡检': '电力线路巡检，需要热成像和可见光变焦，RTK定位，续航≥45分钟，载荷≥1.5kg，预算5万',
+                '农业测绘': '农田长势监测，需要多光谱相机，续航≥50分钟，载荷≥1kg，预算4万',
+                '公共安全': '夜间搜救侦察，需要热成像和激光测距，RTK定位，长续航，预算8万'
+            };
+            document.getElementById('taskDesc').value = data[type] || '';
+        }
+    </script>
+</body>
+</html>

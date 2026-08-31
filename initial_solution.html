@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>初步方案</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; padding: 30px 20px; }
+        .container { max-width: 1100px; margin: 0 auto; background: white; padding: 40px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+        h1 { color: #1a2b4c; border-bottom: 4px solid #2a7de1; padding-bottom: 15px; margin-bottom: 25px; }
+        .summary-box { background: #1a2b4c; color: white; padding: 20px 25px; border-radius: 10px; display: flex; flex-wrap: wrap; gap: 25px; margin: 20px 0; }
+        .summary-box .pass { color: #2ecc71; }
+        .summary-box .fail { color: #e74c3c; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; margin: 20px 0; }
+        .card { background: #f8f9fa; padding: 18px; border-radius: 10px; border-left: 5px solid #2a7de1; }
+        .card .role { font-size: 12px; color: #7f8c8d; text-transform: uppercase; letter-spacing: 1px; }
+        .card .model { font-size: 17px; font-weight: 700; color: #1a2b4c; }
+        .card .brand { color: #7f8c8d; font-size: 14px; }
+        .card .detail { font-size: 14px; margin-top: 5px; }
+        .checklist { background: #f8f9fa; padding: 20px 25px; border-radius: 10px; margin: 20px 0; }
+        .checklist-item { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #e8ecf1; }
+        .checklist-item:last-child { border-bottom: none; }
+        .checklist-item .pass { color: #27ae60; font-weight: 600; }
+        .checklist-item .fail { color: #e74c3c; font-weight: 600; }
+        .btn-group { display: flex; gap: 15px; margin-top: 25px; }
+        .btn-back { background: #ecf0f1; color: #2c3e50; border: none; padding: 14px; border-radius: 10px; font-size: 16px; font-weight: 600; cursor: pointer; flex: 1; text-align: center; text-decoration: none; display: inline-block; }
+        .btn-restart { background: #2a7de1; color: white; border: none; padding: 14px; border-radius: 10px; font-size: 16px; font-weight: 600; cursor: pointer; flex: 2; text-align: center; text-decoration: none; display: inline-block; }
+        .btn-restart:hover { background: #1a5fb4; }
+        .note { background: #fef9e7; padding: 15px 20px; border-radius: 8px; border-left: 5px solid #f1c40f; margin: 15px 0; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 初步可行方案</h1>
+        <p style="color: #5d6d7e;">基于硬性筛选规则组合的初步方案（非最优，仅供可行性验证）</p>
+
+        <div class="summary-box" id="summary">
+            <span>💰 总价: <strong id="totalPrice">¥46,000</strong></span>
+            <span>📦 总载荷: <strong id="totalPayload">0.2 kg</strong></span>
+            <span>⚡ 总功耗: <strong>85 W</strong></span>
+            <span>📋 功能: <strong id="coverage" class="pass">✅ 全部满足</strong></span>
+            <span>💵 预算: <strong id="budgetStatus" class="pass">✅ 未超限</strong></span>
+            <span>⚖️ 载重: <strong id="payloadStatus" class="pass">✅ 未超限</strong></span>
+        </div>
+
+        <h3>🔧 推荐组合</h3>
+        <div class="grid" id="solutionGrid">
+            <div class="card"><div class="role">🚁 无人机</div><div class="model">Matrice 4T</div><div class="brand">DJI</div><div class="detail">💰 ¥32,000 ⚖️ 1.23kg</div></div>
+            <div class="card"><div class="role">🔥 热成像</div><div class="model">Boson 640</div><div class="brand">FLIR</div><div class="detail">💰 ¥4,500 ⚖️ 0.2kg</div></div>
+            <div class="card"><div class="role">📡 激光雷达</div><div class="model">Mid-360</div><div class="brand">Livox</div><div class="detail">💰 ¥7,000 ⚖️ 0.27kg</div></div>
+            <div class="card"><div class="role">📍 RTK定位</div><div class="model">ZED-F9P</div><div class="brand">u-blox</div><div class="detail">💰 ¥800 ⚖️ 0.02kg</div></div>
+            <div class="card"><div class="role">💻 计算平台</div><div class="model">Jetson Orin NX</div><div class="brand">NVIDIA</div><div class="detail">💰 ¥2,500 ⚖️ 0.05kg</div></div>
+        </div>
+
+        <div class="checklist">
+            <h4>📋 可行性检查</h4>
+            <div class="checklist-item"><span>💰 总价 ¥46,000</span><span class="pass">✅ ≤ ¥50,000</span></div>
+            <div class="checklist-item"><span>📦 总载荷 0.2 kg</span><span class="pass">✅ ≤ 2.0 kg</span></div>
+            <div class="checklist-item"><span>🔧 功能覆盖</span><span class="pass">✅ 热成像, RTK定位</span></div>
+        </div>
+
+        <div class="note">⚠️ 此为初步方案，实际部署前需考虑设备兼容性、接口匹配和软件生态</div>
+
+        <div class="btn-group">
+            <a href="candidate_devices.html" class="btn-back">← 返回候选</a>
+            <a href="task_input.html" class="btn-restart">🔄 重新输入</a>
+        </div>
+    </div>
+</body>
+</html>
