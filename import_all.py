@@ -14,6 +14,7 @@ def create_tables(conn):
     cursor.executescript('''
         CREATE TABLE IF NOT EXISTS drones (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT,
             brand TEXT,
             model TEXT,
             max_payload REAL,
@@ -30,6 +31,7 @@ def create_tables(conn):
         );
         CREATE TABLE IF NOT EXISTS sensors (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT,
             category TEXT,
             brand TEXT,
             model TEXT,
@@ -48,6 +50,7 @@ def create_tables(conn):
         );
         CREATE TABLE IF NOT EXISTS computers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT,
             brand TEXT,
             model TEXT,
             cpu TEXT,
@@ -192,10 +195,11 @@ def import_all():
     create_tables(conn)
 
     uav_mapping = {
+        'device_id': '无人机ID',      # 新增映射
         'brand': '厂家',
         'model': '型号',
         'max_payload': '最大起飞重量(kg)',
-        'flight_range': '最大航程(km)',
+        'flight_range': '最大航程/作业半径(km)',
         'working_temperature': '工作温度(°C)',
         'protection_level': '防护等级',
         'source_url': '官方链接',
@@ -208,6 +212,7 @@ def import_all():
     uav_required = ['brand', 'model']
 
     sensor_mapping = {
+        'device_id': '传感器ID',      # 新增映射
         'category': '传感器子类',
         'brand': '厂家',
         'model': '型号',
@@ -231,6 +236,7 @@ def import_all():
     sensor_required = ['category', 'brand', 'model']
 
     computer_mapping = {
+        'device_id': '计算平台ID',    # 新增映射
         'brand': '厂家',
         'model': '型号',
         'ram': '内存',
