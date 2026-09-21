@@ -1,9 +1,11 @@
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 db = SQLAlchemy()
+
 class Drone(db.Model):
     __tablename__ = 'drones'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    device_id = db.Column(db.String(100), nullable=True)  # 新增：存储Excel中的无人机ID
     brand = db.Column(db.String(100), nullable=False)
     model = db.Column(db.String(100), nullable=False)
     max_payload = db.Column(db.Float, nullable=True)
@@ -21,6 +23,7 @@ class Drone(db.Model):
 class Sensor(db.Model):
     __tablename__ = 'sensors'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    device_id = db.Column(db.String(100), nullable=True)  # 新增：存储Excel中的传感器ID
     category = db.Column(db.String(100), nullable=False)
     brand = db.Column(db.String(100), nullable=False)
     model = db.Column(db.String(100), nullable=False)
@@ -40,6 +43,7 @@ class Sensor(db.Model):
 class Computer(db.Model):
     __tablename__ = 'computers'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    device_id = db.Column(db.String(100), nullable=True)  # 新增：存储Excel中的计算平台ID
     brand = db.Column(db.String(100), nullable=False)
     model = db.Column(db.String(100), nullable=False)
     cpu = db.Column(db.String(100), nullable=True)
