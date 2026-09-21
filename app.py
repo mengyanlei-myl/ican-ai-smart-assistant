@@ -1,3 +1,4 @@
+from flask_cors import CORS
 from flask import Flask, request, jsonify
 from models import db, Drone, Sensor, Computer
 from config import Config
@@ -5,6 +6,7 @@ from config import Config
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
+    CORS(app)
     db.init_app(app)
 
     with app.app_context():
