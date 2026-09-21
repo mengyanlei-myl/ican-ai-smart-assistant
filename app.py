@@ -24,6 +24,7 @@ def create_app():
         drones = query.all()
         return jsonify([{
             'id': d.id,
+            'device_id': d.device_id,  # <--- 修复：新增 device_id
             'brand': d.brand,
             'model': d.model,
             'max_payload': d.max_payload,
@@ -52,6 +53,7 @@ def create_app():
         sensors = query.all()
         return jsonify([{
             'id': s.id,
+            'device_id': s.device_id,  # <--- 修复：新增 device_id
             'category': s.category,
             'brand': s.brand,
             'model': s.model,
@@ -81,6 +83,7 @@ def create_app():
         computers = query.all()
         return jsonify([{
             'id': c.id,
+            'device_id': c.device_id,  # <--- 修复：新增 device_id
             'brand': c.brand,
             'model': c.model,
             'cpu': c.cpu,
@@ -122,7 +125,8 @@ def create_app():
             if reasons:
                 drones_fail.append({'device': d.model, 'brand': d.brand, 'reasons': reasons})
             else:
-                drones_pass.append({'id': d.id, 'model': d.model, 'brand': d.brand})
+                # <--- 修复：筛选接口也返回 device_id
+                drones_pass.append({'id': d.id, 'device_id': d.device_id, 'model': d.model, 'brand': d.brand})
 
         sensors_all = Sensor.query.all()
         sensors_pass, sensors_fail = [], []
@@ -143,7 +147,8 @@ def create_app():
             if reasons:
                 sensors_fail.append({'device': s.model, 'brand': s.brand, 'reasons': reasons})
             else:
-                sensors_pass.append({'id': s.id, 'model': s.model, 'brand': s.brand})
+                # <--- 修复：筛选接口也返回 device_id
+                sensors_pass.append({'id': s.id, 'device_id': s.device_id, 'model': s.model, 'brand': s.brand})
 
         computers_all = Computer.query.all()
         computers_pass, computers_fail = [], []
@@ -156,7 +161,8 @@ def create_app():
             if reasons:
                 computers_fail.append({'device': c.model, 'brand': c.brand, 'reasons': reasons})
             else:
-                computers_pass.append({'id': c.id, 'model': c.model, 'brand': c.brand})
+                # <--- 修复：筛选接口也返回 device_id
+                computers_pass.append({'id': c.id, 'device_id': c.device_id, 'model': c.model, 'brand': c.brand})
 
         return jsonify({
             'drones': {'pass': drones_pass, 'fail': drones_fail},
