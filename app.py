@@ -1,7 +1,10 @@
+import sqlite3
+import json
 from flask_cors import CORS
 from flask import Flask, request, jsonify
 from models import db, Drone, Sensor, Computer
 from config import Config
+from rules_engine import evaluate_combo
 
 
 def _to_float(value, default=None):
@@ -272,6 +275,67 @@ def create_app():
             'drones': {'pass': drones_pass, 'fail': drones_fail},
             'sensors': {'pass': sensors_pass, 'fail': sensors_fail},
             'computers': {'pass': computers_pass, 'fail': computers_fail}
+        })
+
+    # =========================================================
+    # 新增：API v2 推荐接口
+    # =========================================================
+    @app.route('/api/v2/recommend', methods=['POST'])
+    def recommend_v2():
+        data = request.get_json(silent=True)
+        if not data:
+            return jsonify({'error': '请求体需为JSON'}), 400
+        
+        # 1. 获取前端传来的启用规则和任务需求
+        enabled_rules = data.get('enabled_rules', [])
+        requirements = data.get('requirements', {})
+        
+        # 2. 从数据库读取所有 v2 兼容性设备
+        conn = sqlite3.connect('data/low_altitude_selection.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT device_id, raw_data FROM v2_compatibility")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        all_devices = {row[0]: json.loads(row[1]) for row in rows}
+        
+        # 3. 按设备类型分组（根据列名判断）
+        uavs = [d for d in all_devices.values() if '无人机ID' in d]
+        sensors = [d for d in all_devices.values() if '传感器ID' in d]
+        computers = [d for d in all_devices.values() if '计算平台ID' in d]
+        
+        recommendations = []
+        
+        # 4. 穷举所有组合，调用规则引擎打分
+        for uav in uavs:
+            for sensor in sensors:
+                for computer in computers:
+                    combo_data = {
+                        'uav': uav,
+                        'sensor': sensor,
+                        'computer': computer,
+                        'requirements': requirements
+                    }
+                    status, details = evaluate_combo(combo_data, enabled_rules)
+                    
+                    # 只有 pass 和 manual_review 才作为推荐返回，fail 直接丢弃
+                    if status in ['pass', 'manual_review']:
+                        recommendations.append({
+                            'status': status,
+                            'details': details,
+                            'uav': uav.get('无人机ID'),
+                            'sensor': sensor.get('传感器ID'),
+                            'computer': computer.get('计算平台ID')
+                        })
+        
+        # 5. 排序：优先推荐 pass，再推荐 manual_review
+        recommendations.sort(key=lambda x: 0 if x['status'] == 'pass' else 1)
+        
+        # 6. 返回 Top 3 组合
+        return jsonify({
+            'status': 'success',
+            'total_found': len(recommendations),
+            'top_3': recommendations[:3]
         })
 
     return app
