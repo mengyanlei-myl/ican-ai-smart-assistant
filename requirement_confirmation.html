@@ -31,21 +31,44 @@
         <p style="color: #5d6d7e; margin: 15px 0;">请确认以下参数，如有误可返回修改</p>
 
         <div class="grid">
-            <div class="item"><label>📝 应用场景</label><div class="value">电力巡检</div></div>
-            <div class="item"><label>💰 预算</label><div class="value">¥50,000</div></div>
-            <div class="item"><label>⏱️ 最低续航</label><div class="value">45 分钟</div></div>
-            <div class="item"><label>📦 最大载荷</label><div class="value">2.0 kg</div></div>
-            <div class="item"><label>🔧 必需功能</label><div class="value">热成像, RTK定位</div></div>
-            <div class="item"><label>🌦️ 工作环境</label><div class="value">通用</div></div>
-            <div class="item"><label>🎯 优先目标</label><div class="value">均衡</div></div>
+            <div class="item"><label>📝 任务描述</label><div class="value" id="v-taskDesc">—</div></div>
+            <div class="item"><label>💰 预算</label><div class="value" id="v-budget">—</div></div>
+            <div class="item"><label>⏱️ 最低续航</label><div class="value" id="v-flightTime">—</div></div>
+            <div class="item"><label>📦 最大载荷</label><div class="value" id="v-payload">—</div></div>
+            <div class="item"><label>🔧 必需功能</label><div class="value" id="v-functions">—</div></div>
+            <div class="item"><label>🌦️ 工作环境</label><div class="value" id="v-environment">—</div></div>
+            <div class="item"><label>🎯 优先目标</label><div class="value" id="v-priority">—</div></div>
         </div>
 
-        <div class="info">💡 系统将从 100+ 真实设备中筛选匹配型号</div>
+        <div class="info">💡 系统将从真实设备数据库中筛选匹配型号</div>
 
         <div class="btn-group">
             <button class="btn-back" onclick="history.back()">← 返回修改</button>
-            <button class="btn-next" onclick="window.location.href='candidate_devices.html'">🔍 查看候选设备 →</button>
+            <button class="btn-next" onclick="goToCandidates()">🔍 查看候选设备 →</button>
         </div>
     </div>
+
+    <script>
+        const req = JSON.parse(localStorage.getItem('requirements') || '{}');
+
+        document.getElementById('v-taskDesc').textContent = req.taskDesc || '—';
+        document.getElementById('v-budget').textContent = req.budget ? '¥' + req.budget : '—';
+        document.getElementById('v-flightTime').textContent = req.minFlightTime ? req.minFlightTime + ' 分钟' : '—';
+        document.getElementById('v-payload').textContent = req.maxPayload ? req.maxPayload + ' kg' : '—';
+        document.getElementById('v-functions').textContent = (req.requiredFunctions || []).join(', ') || '无';
+        document.getElementById('v-environment').textContent = req.environment || '通用';
+        document.getElementById('v-priority').textContent = req.priority || '均衡';
+
+        function goToCandidates() {
+            const params = new URLSearchParams();
+            if (req.budget) params.append('budget', req.budget);
+            if (req.maxPayload) params.append('maxPayload', req.maxPayload);
+            if (req.minFlightTime) params.append('minFlightTime', req.minFlightTime);
+            if (req.requiredFunctions && req.requiredFunctions.length > 0) {
+                params.append('functions', req.requiredFunctions.join(','));
+            }
+            window.location.href = 'candidate_devices.html?' + params.toString();
+        }
+    </script>
 </body>
 </html>

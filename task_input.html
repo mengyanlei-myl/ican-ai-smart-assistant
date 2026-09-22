@@ -28,7 +28,7 @@
         <h1>🚁 低空任务设备选型</h1>
         <p style="color: #5d6d7e; margin-bottom: 25px;">输入任务需求，系统将基于真实设备数据库智能匹配</p>
 
-        <form onsubmit="event.preventDefault(); window.location.href='requirement_confirmation.html';">
+        <form onsubmit="handleSubmit(event);">
             <div class="form-group">
                 <label>📝 任务描述</label>
                 <textarea id="taskDesc" placeholder="例如：电力巡检，需要热成像和RTK定位，续航≥45分钟，载荷≥2kg，预算5万元"></textarea>
@@ -59,11 +59,11 @@
                 <div class="form-group">
                     <label>🎯 优先目标</label>
                     <select id="priority">
-                        <option value="balanced">均衡</option>
-                        <option value="lightweight">轻量化</option>
-                        <option value="longflight">长续航</option>
-                        <option value="highpayload">大载重</option>
-                        <option value="lowcost">低成本</option>
+                        <option value="均衡">均衡</option>
+                        <option value="轻量化">轻量化</option>
+                        <option value="长续航">长续航</option>
+                        <option value="大载重">大载重</option>
+                        <option value="低成本">低成本</option>
                     </select>
                 </div>
             </div>
@@ -84,11 +84,11 @@
                 <div class="form-group">
                     <label>🌦️ 工作环境</label>
                     <select id="environment">
-                        <option value="general">通用</option>
-                        <option value="outdoor">室外</option>
-                        <option value="indoor">室内/狭窄</option>
-                        <option value="highaltitude">高海拔</option>
-                        <option value="rain">雨雾</option>
+                        <option value="通用">通用</option>
+                        <option value="室外">室外</option>
+                        <option value="室内/狭窄">室内/狭窄</option>
+                        <option value="高海拔">高海拔</option>
+                        <option value="雨雾">雨雾</option>
                     </select>
                 </div>
             </div>
@@ -105,6 +105,23 @@
                 '公共安全': '夜间搜救侦察，需要热成像和激光测距，RTK定位，长续航，预算8万'
             };
             document.getElementById('taskDesc').value = data[type] || '';
+        }
+
+        function handleSubmit(e) {
+            e.preventDefault();
+
+            const requirements = {
+                taskDesc: document.getElementById('taskDesc').value,
+                budget: document.getElementById('budget').value,
+                minFlightTime: document.getElementById('flightTime').value,
+                maxPayload: document.getElementById('payload').value,
+                requiredFunctions: Array.from(document.getElementById('functions').selectedOptions).map(o => o.value),
+                environment: document.getElementById('environment').value,
+                priority: document.getElementById('priority').value
+            };
+
+            localStorage.setItem('requirements', JSON.stringify(requirements));
+            window.location.href = 'requirement_confirmation.html';
         }
     </script>
 </body>

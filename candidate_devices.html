@@ -12,178 +12,172 @@
         .header .badge { background: #2a7de1; color: white; padding: 6px 16px; border-radius: 30px; font-size: 14px; }
         .category-section { margin: 30px 0; }
         .category-title { font-size: 22px; font-weight: 600; color: #1a2b4c; margin-bottom: 15px; padding-left: 10px; border-left: 5px solid #2a7de1; }
+        .sub-title { font-size: 16px; font-weight: 600; color: #2a7de1; margin: 15px 0 10px 0; }
         .device-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
-        .device-card { background: white; border-radius: 12px; padding: 18px 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border-top: 4px solid #2a7de1; transition: transform 0.1s; }
+        .device-card { background: white; border-radius: 12px; padding: 18px 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border-top: 4px solid #2a7de1; }
         .device-card .model { font-size: 18px; font-weight: 700; color: #1a2b4c; }
         .device-card .brand { color: #5d6d7e; font-size: 14px; }
         .device-card .specs { margin: 12px 0; font-size: 14px; line-height: 1.6; color: #2c3e50; }
         .device-card .specs span { background: #f0f4f8; padding: 2px 10px; border-radius: 12px; margin-right: 6px; display: inline-block; margin-bottom: 4px; }
-        .device-card .source { font-size: 12px; color: #95a5a6; margin-top: 10px; border-top: 1px solid #ecf0f1; padding-top: 8px; }
+        .device-card .source { font-size: 12px; color: #95a5a6; margin-top: 10px; border-top: 1px solid #ecf0f1; padding-top: 8px; word-break: break-all; }
         .loading { text-align: center; padding: 40px; color: #7f8c8d; }
         .error { text-align: center; padding: 40px; color: #e74c3c; }
         .empty { text-align: center; padding: 20px; color: #95a5a6; }
         .summary-bar { background: #1a2b4c; color: white; padding: 15px 25px; border-radius: 10px; display: flex; flex-wrap: wrap; gap: 30px; margin-bottom: 25px; }
         .summary-bar span { font-weight: 300; }
         .summary-bar strong { font-weight: 600; }
+        .combo-status { font-size: 14px; padding: 4px 12px; border-radius: 20px; margin-left: 10px; }
+        .status-pass { background: #d5f5e3; color: #1a7a42; }
+        .status-manual { background: #fef9e7; color: #9a7d0a; }
+        .status-fail { background: #fadbd8; color: #922b21; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🔍 候选设备</h1>
+            <h1>🔍 推荐方案</h1>
             <span class="badge" id="totalBadge">加载中...</span>
         </div>
 
         <div class="summary-bar" id="summaryBar">
-            <span>📋 任务: <strong>电力巡检</strong></span>
-            <span>💰 预算: <strong>¥50,000</strong></span>
-            <span>⏱️ 续航 ≥ <strong>45min</strong></span>
-            <span>📦 载荷 ≤ <strong>2.0kg</strong></span>
-            <span>🔧 功能: <strong>热成像, RTK</strong></span>
+            <span>💰 预算: <strong id="s-budget">—</strong></span>
+            <span>⏱️ 续航 ≥ <strong id="s-flightTime">—</strong></span>
+            <span>📦 载荷 ≤ <strong id="s-payload">—</strong></span>
+            <span>🔧 功能: <strong id="s-functions">—</strong></span>
         </div>
 
         <div id="deviceList">
-            <div class="loading">⏳ 正在加载设备数据...</div>
+            <div class="loading">⏳ 正在计算推荐方案...</div>
         </div>
     </div>
 
     <script>
-        // ============================================================
-        // 配置
-        // ============================================================
         const API_BASE = 'http://127.0.0.1:5000';
 
-        // ============================================================
-        // 通用：安全取值，空值显示 “—”
-        // ============================================================
         function val(v) {
-            return (v === null || v === undefined || v === '') ? '—' : v;
+            return (v === null || v === undefined || v === '' || v === 'nan') ? '—' : v;
         }
 
-        // ============================================================
-        // 请求三个接口
-        // ============================================================
-        async function loadDrones() {
-            const res = await fetch(`${API_BASE}/api/drones`);
-            if (!res.ok) throw new Error('drones 接口请求失败');
-            return await res.json();
-        }
+        const urlParams = new URLSearchParams(window.location.search);
+        const budget = urlParams.get('budget');
+        const maxPayload = urlParams.get('maxPayload');
+        const minFlightTime = urlParams.get('minFlightTime');
+        const functions = urlParams.get('functions');
 
-        async function loadSensors() {
-            const res = await fetch(`${API_BASE}/api/sensors`);
-            if (!res.ok) throw new Error('sensors 接口请求失败');
-            return await res.json();
-        }
+        document.getElementById('s-budget').textContent = budget ? '¥' + budget : '不限';
+        document.getElementById('s-flightTime').textContent = minFlightTime ? minFlightTime + 'min' : '不限';
+        document.getElementById('s-payload').textContent = maxPayload ? maxPayload + 'kg' : '不限';
+        document.getElementById('s-functions').textContent = functions || '不限';
 
-        async function loadComputers() {
-            const res = await fetch(`${API_BASE}/api/computers`);
-            if (!res.ok) throw new Error('computers 接口请求失败');
-            return await res.json();
-        }
+        async function loadRecommendations(requirements) {
+            const payload = {
+                enabled_rules: ["R01", "R02", "R03", "R04", "R05", "R06", "R07"],
+                requirements: requirements
+            };
 
-        // ============================================================
-        // 生成设备卡片 HTML
-        // ============================================================
-        function renderDeviceCards(devices, type) {
-            if (!devices || devices.length === 0) {
-                return `<div class="empty">暂无该类别设备</div>`;
-            }
-
-            let html = `<div class="device-grid">`;
-
-            devices.forEach(device => {
-                html += `<div class="device-card">`;
-                html += `<div class="model">${val(device.model)}</div>`;
-                html += `<div class="brand">${val(device.brand)}</div>`;
-                html += `<div class="specs">`;
-
-                if (type === 'drone') {
-                    html += `<span>⚖️ ${val(device.weight)} kg</span>`;
-                    html += `<span>📦 ${val(device.max_payload)} kg</span>`;
-                    html += `<span>⏱️ ${val(device.endurance)} min</span>`;
-                    html += `<span>💰 ¥${val(device.price)}</span>`;
-                    html += `<span>🛡️ ${val(device.protection_level)}</span>`;
-                    html += `<span>🌡️ ${val(device.working_temperature)}</span>`;
-                } else if (type === 'sensor') {
-                    html += `<span>📂 ${val(device.category)}</span>`;
-                    html += `<span>🔌 ${val(device.interfaces)}</span>`;
-                    html += `<span>📏 ${val(device.detection_range)}</span>`;
-                    html += `<span>🎯 ${val(device.accuracy)}</span>`;
-                    html += `<span>💰 ¥${val(device.price)}</span>`;
-                } else if (type === 'computer') {
-                    html += `<span>🧠 ${val(device.cpu)}</span>`;
-                    html += `<span>💾 ${val(device.ram)}</span>`;
-                    html += `<span>🔌 ${val(device.interfaces)}</span>`;
-                    html += `<span>💰 ¥${val(device.price)}</span>`;
-                }
-
-                html += `</div>`;
-                html += `<div class="source">📎 来源: ${val(device.source_url)}</div>`;
-                html += `</div>`;
+            const res = await fetch(`${API_BASE}/api/v2/recommend`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
             });
 
-            html += `</div>`;
-            return html;
+            if (!res.ok) throw new Error('推荐接口请求失败');
+            return await res.json();
         }
 
-        // ============================================================
-        // 渲染全部
-        // ============================================================
-        function renderAll(drones, sensors, computers) {
+        // 无人机卡片
+        function renderDroneCard(d) {
+            if (!d) return `<div class="empty">无</div>`;
+            return `<div class="device-grid"><div class="device-card">
+                <div class="model">${val(d['型号'])}</div>
+                <div class="brand">${val(d['厂家'])}</div>
+                <div class="specs">
+                    <span>📦 ${val(d['最大有效载荷(kg)'])} kg</span>
+                    <span>🛡️ ${val(d['防护等级'])}</span>
+                    <span>🌡️ ${val(d['工作温度最低值(℃)'])}℃</span>
+                </div>
+                <div class="source">📎 来源: ${val(d['来源链接'])}</div>
+            </div></div>`;
+        }
+
+        // 传感器卡片
+        function renderSensorCard(s) {
+            if (!s) return `<div class="empty">无</div>`;
+            return `<div class="device-grid"><div class="device-card">
+                <div class="model">${val(s['型号'])}</div>
+                <div class="brand">${val(s['厂家'])}</div>
+                <div class="specs">
+                    <span>📂 ${val(s['类别'])}</span>
+                    <span>🔌 ${val(s['数据接口'])}</span>
+                    <span>⚖️ ${val(s['重量(kg)'])} kg</span>
+                    <span>⚡ ${val(s['功耗(W)'])} W</span>
+                </div>
+                <div class="source">📎 来源: ${val(s['来源链接'])}</div>
+            </div></div>`;
+        }
+
+        // 计算平台卡片
+        function renderComputerCard(c) {
+            if (!c) return `<div class="empty">无</div>`;
+            return `<div class="device-grid"><div class="device-card">
+                <div class="model">${val(c['型号'])}</div>
+                <div class="brand">${val(c['厂家'])}</div>
+                <div class="specs">
+                    <span>🧠 ${val(c['CPU型号'])}</span>
+                    <span>💾 ${val(c['内存'])}</span>
+                    <span>🔌 ${val(c['数据接口'])}</span>
+                    <span>⚖️ ${val(c['重量(kg)'])} kg</span>
+                </div>
+                <div class="source">📎 来源: ${val(c['来源链接'])}</div>
+            </div></div>`;
+        }
+
+        function statusClass(status) {
+            if (status === 'pass') return 'status-pass';
+            if (status === 'fail') return 'status-fail';
+            return 'status-manual';
+        }
+
+        function renderRecommendations(result) {
             const container = document.getElementById('deviceList');
-            let html = '';
 
-            // 无人机
-            html += `<div class="category-section"><div class="category-title">🚁 候选无人机</div>`;
-            html += renderDeviceCards(drones, 'drone');
-            html += `</div>`;
-
-            // 传感器 - 按子类分组
-            const sensorGroups = {
-                '可见光相机': sensors.filter(s => s.category === '可见光相机'),
-                '热成像相机': sensors.filter(s => s.category === '热成像相机'),
-                '激光雷达': sensors.filter(s => s.category === '激光雷达'),
-                'RTK/IMU': sensors.filter(s => s.category === 'RTK GNSS' || s.category === 'GNSS/INS' || s.category === 'IMU/AHRS 模块'),
-            };
-            for (const [group, devices] of Object.entries(sensorGroups)) {
-                html += `<div class="category-section"><div class="category-title">📷 ${group}</div>`;
-                html += renderDeviceCards(devices, 'sensor');
-                html += `</div>`;
+            if (!result.top_3 || result.top_3.length === 0) {
+                container.innerHTML = `<div class="empty">暂无符合条件的组合</div>`;
+                document.getElementById('totalBadge').textContent = '无结果';
+                return;
             }
 
-            // 计算平台
-            html += `<div class="category-section"><div class="category-title">💻 候选计算平台</div>`;
-            html += renderDeviceCards(computers, 'computer');
-            html += `</div>`;
-
+            let html = '';
+            result.top_3.forEach((combo, index) => {
+                html += `<div class="category-section">`;
+                html += `<div class="category-title">方案 ${index + 1}<span class="combo-status ${statusClass(combo.status)}">${combo.status}</span></div>`;
+                html += `<div class="sub-title">🚁 无人机</div>`;
+                html += renderDroneCard(combo.uav);
+                html += `<div class="sub-title">📷 传感器</div>`;
+                html += renderSensorCard(combo.sensor);
+                html += `<div class="sub-title">💻 计算平台</div>`;
+                html += renderComputerCard(combo.computer);
+                html += `</div>`;
+            });
             container.innerHTML = html;
 
-            // 顶部数量动态显示
-            const total = drones.length + sensors.length + computers.length;
             document.getElementById('totalBadge').textContent =
-                `${drones.length} 无人机 / ${sensors.length} 传感器 / ${computers.length} 计算平台`;
+                `共 ${result.total_found} 套组合，展示前 ${result.top_3.length} 套`;
         }
 
-        // ============================================================
-        // 入口
-        // ============================================================
         async function init() {
             const container = document.getElementById('deviceList');
-            container.innerHTML = `<div class="loading">⏳ 正在加载设备数据...</div>`;
-            document.getElementById('totalBadge').textContent = '加载中...';
+            container.innerHTML = `<div class="loading">⏳ 正在计算推荐方案...</div>`;
+            document.getElementById('totalBadge').textContent = '计算中...';
+
+            const requirements = {};
+            if (maxPayload) {
+                requirements['任务载荷/安装余量(kg)'] = parseFloat(maxPayload);
+            }
 
             try {
-                const [drones, sensors, computers] = await Promise.all([
-                    loadDrones(),
-                    loadSensors(),
-                    loadComputers()
-                ]);
-
-                if (!Array.isArray(drones) || !Array.isArray(sensors) || !Array.isArray(computers)) {
-                    throw new Error('接口返回格式不是数组');
-                }
-
-                renderAll(drones, sensors, computers);
+                const result = await loadRecommendations(requirements);
+                renderRecommendations(result);
             } catch (err) {
                 console.error(err);
                 container.innerHTML = `<div class="error">❌ 接口连接失败，请确认后端已启动</div>`;

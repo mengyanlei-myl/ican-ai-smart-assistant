@@ -321,12 +321,12 @@ def create_app():
                     # 只有 pass 和 manual_review 才作为推荐返回，fail 直接丢弃
                     if status in ['pass', 'manual_review']:
                         recommendations.append({
-                            'status': status,
-                            'details': details,
-                            'uav': uav.get('无人机ID'),
-                            'sensor': sensor.get('传感器ID'),
-                            'computer': computer.get('计算平台ID')
-                        })
+                             'status': status,
+                             'details': details,
+                             'uav': uav,
+                             'sensor': sensor,
+                             'computer': computer
+                    })
         
         # 5. 排序：优先推荐 pass，再推荐 manual_review
         recommendations.sort(key=lambda x: 0 if x['status'] == 'pass' else 1)
