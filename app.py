@@ -304,30 +304,37 @@ def create_app():
                             'computer': computer.get('计算平台ID')
                         })
         
-        # 【关键修复】排序策略升级：优先 pass，其次 manual_review；如果是 manual_review，缺失规则少的优先
-        def sort_key(item):
-            if item['status'] == 'pass':
-                return (0, 0)
-            else:
-                missing_count = len([d for d in item['details'] if d['status'] == 'manual_review'])
-                return (1, missing_count)
-        
-        recommendations.sort(key=sort_key)
-        
-        # 组装返回结果，增加解释文本
-        top_3 = recommendations[:3]
-        for item in top_3:
-            if item['status'] == 'pass':
-                item['reason'] = "满足所有启用的硬性约束，推荐优先使用。"
-            else:
-                missing_rules = [d['rule_id'] for d in item['details'] if d['status'] == 'manual_review']
-                item['reason'] = f"数据存在缺失，需人工确认以下规则: {', '.join(missing_rules)}"
-        
+        # 【关键修复】把 pass 和 manual_review 彻底分开返回
+        pass_list = [item for item in recommendations if item['status'] == 'pass']
+        manual_review_list = [item for item in recommendations if item['status'] == 'manual_review']
+
+        # 为每个组合补充 reason 解释文本
+        for item in pass_list:
+            item['reason'] = "满足所有启用的硬性约束，推荐优先使用。"
+        for item in manual_review_list:
+            missing_rules = [d['rule_id'] for d in item['details'] if d['status'] == 'manual_review']
+            item['reason'] = f"数据存在缺失，需人工确认以下规则: {', '.join(missing_rules)}"
+
+        # 各自的排序逻辑
+        pass_list.sort(key=lambda x: x.get('uav', ''))
+        manual_review_list.sort(
+            key=lambda x: len([d for d in x['details'] if d['status'] == 'manual_review'])
+        )
+
+        # 为了兼容旧前端，额外提供一个合并的 top_3
+        combined = pass_list + manual_review_list
+        top_3 = combined[:3]
+
+        # 返回分开的列表
         return jsonify({
             'status': 'success',
-            'enabled_rules': enabled_rules, # 返回后端实际启用的规则，供前端核对
+            'enabled_rules': enabled_rules,
             'total_found': len(recommendations),
-            'top_3': top_3
+            'total_pass': len(pass_list),
+            'total_manual_review': len(manual_review_list),
+            'pass_list': pass_list,                   # 完全分开的 pass 列表
+            'manual_review_list': manual_review_list, # 完全分开的 manual_review 列表
+            'top_3': top_3                            # 兼容旧字段
         })
 
     # ==================== V2 健康检查 ====================
