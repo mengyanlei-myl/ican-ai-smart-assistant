@@ -1,0 +1,16 @@
+{
+  "version": "v2",
+  "description": "推荐引擎权重配置（当前已由硬约束和三态规则引擎接管，此文件仅作配置留档）",
+  "weights": {
+    "hard_constraints": 100,
+    "balanced": 80,
+    "cost_first": 70,
+    "payload_first": 90,
+    "endurance_first": 60
+  },
+  "rules": {
+    "enable_hard_constraints": true,
+    "enable_manual_review": true,
+    "max_top_k": 3
+  }
+}
