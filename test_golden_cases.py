@@ -4,6 +4,8 @@ import os
 import json
 import sqlite3
 import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 from rules_engine import evaluate_combo
 

@@ -350,8 +350,12 @@ def create_app():
         cursor.execute("SELECT COUNT(*) FROM computers")
         computers_count = cursor.fetchone()[0]
         
-        cursor.execute("SELECT COUNT(*) FROM v2_compatibility WHERE raw_data LIKE '%\"数据状态\": \"verified\"%'")
-        verified_total = cursor.fetchone()[0]
+        cursor.execute("SELECT device_type, COUNT(*) FROM v2_compatibility WHERE verification_status = 'verified' GROUP BY device_type")
+        verified_counts = {device_type: count for device_type, count in cursor.fetchall()}
+        cursor.execute("SELECT COUNT(*) FROM verification_evidence")
+        evidence_count = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM v2_compatibility")
+        compatibility_count = cursor.fetchone()[0]
         
         conn.close()
         
@@ -365,10 +369,12 @@ def create_app():
                 "computers": computers_count
             },
             "verified_counts": {
-                "drones": verified_total,
-                "sensors": 0,
-                "computers": 0
-            }
+                "drones": verified_counts.get("uav", 0),
+                "sensors": verified_counts.get("sensor", 0),
+                "computers": verified_counts.get("computer", 0)
+            },
+            "compatibility_records": compatibility_count,
+            "verification_evidence": evidence_count
         })
 
     return app

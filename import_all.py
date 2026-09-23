@@ -1,294 +1,307 @@
-import pandas as pd
-import sqlite3
+"""Import the 791-device catalog and merge the verified compatibility layer.
+
+The import is an atomic, idempotent snapshot: running it repeatedly produces the
+same catalog, compatibility, and evidence rows. Empty spreadsheet cells remain
+NULL/JSON null; they are never coerced to zero.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
 import re
-import os
+import sqlite3
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
-DB_PATH = 'data/low_altitude_selection.db'
+import pandas as pd
 
-UAV_FILE = 'data/uav_model_database.xlsx'
-SENSOR_FILE = 'data/sensor_model_database.xlsx'
-COMPUTER_FILE = 'data/compute_platform_database.xlsx'
 
-def create_tables(conn):
-    cursor = conn.cursor()
-    cursor.executescript('''
+ROOT = Path(__file__).resolve().parent
+DATA_DIR = ROOT / "data"
+DB_PATH = DATA_DIR / "low_altitude_selection.db"
+V2_DIR = DATA_DIR / "compatibility" / "v2"
+
+CATALOGS = {
+    "uav": (DATA_DIR / "drone_database_v2_cleaned.xlsx", "drones", "无人机ID"),
+    "sensor": (DATA_DIR / "sensor_database_v2_cleaned.xlsx", "sensors", "传感器ID"),
+    "computer": (DATA_DIR / "compute_platform_database.xlsx", "computers", "计算平台ID"),
+}
+
+COMPATIBILITY_FILES = {
+    "uav": (V2_DIR / "compatibility_specs_v2_completed.xlsx", "无人机兼容参数", "无人机ID", "检索证据"),
+    "sensor": (V2_DIR / "sensor_compatibility_specs_v2_completed.xlsx", "传感器兼容参数", "传感器ID", "检索证据"),
+    "computer": (V2_DIR / "computer_compatibility_specs_v2_completed.xlsx", "计算平台兼容参数", "计算平台ID", "检索证据"),
+}
+
+
+def clean_value(value: Any) -> Any:
+    if value is None or pd.isna(value):
+        return None
+    if isinstance(value, pd.Timestamp):
+        return value.isoformat()
+    if hasattr(value, "item"):
+        value = value.item()
+    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+        return value or None
+    return value
+
+
+def row_dict(row: pd.Series) -> dict[str, Any]:
+    return {str(key).strip(): clean_value(value) for key, value in row.items()}
+
+
+def number(value: Any, scale: float = 1.0) -> float | None:
+    value = clean_value(value)
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value) * scale
+    match = re.search(r"[-+]?\d+(?:\.\d+)?", str(value).replace(",", ""))
+    return float(match.group()) * scale if match else None
+
+
+def json_text(data: dict[str, Any]) -> str:
+    return json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def ensure_schema(conn: sqlite3.Connection) -> None:
+    conn.executescript(
+        """
         CREATE TABLE IF NOT EXISTS drones (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            device_id TEXT,
-            brand TEXT,
-            model TEXT,
-            max_payload REAL,
-            endurance REAL,
-            weight REAL,
-            flight_range REAL,
-            price REAL,
-            power REAL,
-            voltage TEXT,
-            working_temperature TEXT,
-            protection_level TEXT,
-            source_url TEXT,
+            id INTEGER PRIMARY KEY AUTOINCREMENT, device_id TEXT, brand TEXT NOT NULL,
+            model TEXT NOT NULL, max_payload REAL, endurance REAL, weight REAL,
+            flight_range REAL, price REAL, power REAL, voltage TEXT,
+            working_temperature TEXT, protection_level TEXT, source_url TEXT,
             update_date TIMESTAMP
         );
         CREATE TABLE IF NOT EXISTS sensors (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            device_id TEXT,
-            category TEXT,
-            brand TEXT,
-            model TEXT,
-            functions TEXT,
-            detection_range REAL,
-            accuracy TEXT,
-            weight REAL,
-            power REAL,
-            voltage TEXT,
-            interfaces TEXT,
-            working_temperature TEXT,
-            protection_level TEXT,
-            price REAL,
-            source_url TEXT,
-            update_date TIMESTAMP
+            id INTEGER PRIMARY KEY AUTOINCREMENT, device_id TEXT, category TEXT NOT NULL,
+            brand TEXT NOT NULL, model TEXT NOT NULL, functions TEXT,
+            detection_range REAL, accuracy TEXT, weight REAL, power REAL, voltage TEXT,
+            interfaces TEXT, working_temperature TEXT, protection_level TEXT,
+            price REAL, source_url TEXT, update_date TIMESTAMP
         );
         CREATE TABLE IF NOT EXISTS computers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            device_id TEXT,
-            brand TEXT,
-            model TEXT,
-            cpu TEXT,
-            ram REAL,
-            storage REAL,
-            weight REAL,
-            power REAL,
-            voltage TEXT,
-            interfaces TEXT,
-            working_temperature TEXT,
-            protection_level TEXT,
-            price REAL,
-            source_url TEXT,
-            update_date TIMESTAMP
+            id INTEGER PRIMARY KEY AUTOINCREMENT, device_id TEXT, brand TEXT NOT NULL,
+            model TEXT NOT NULL, cpu TEXT, ram REAL, storage REAL, weight REAL,
+            power REAL, voltage TEXT, interfaces TEXT, working_temperature TEXT,
+            protection_level TEXT, price REAL, source_url TEXT, update_date TIMESTAMP
         );
-    ''')
-    conn.commit()
+        CREATE TABLE IF NOT EXISTS v2_compatibility (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, device_id TEXT UNIQUE,
+            device_type TEXT, raw_data TEXT NOT NULL, catalog_data TEXT,
+            evidence_count INTEGER NOT NULL DEFAULT 0, verification_status TEXT
+        );
+        CREATE TABLE IF NOT EXISTS verification_evidence (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, device_type TEXT NOT NULL,
+            device_id TEXT NOT NULL, field_name TEXT, source_url TEXT,
+            evidence_status TEXT, raw_data TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS import_state (
+            import_name TEXT PRIMARY KEY, source_digest TEXT NOT NULL,
+            imported_at TEXT NOT NULL, row_count INTEGER NOT NULL
+        );
+        """
+    )
+    additions = {
+        "drones": {"raw_data": "TEXT", "data_status": "TEXT", "verification_status": "TEXT", "evidence_count": "INTEGER NOT NULL DEFAULT 0"},
+        "sensors": {"raw_data": "TEXT", "data_status": "TEXT", "verification_status": "TEXT", "evidence_count": "INTEGER NOT NULL DEFAULT 0"},
+        "computers": {"raw_data": "TEXT", "data_status": "TEXT", "verification_status": "TEXT", "evidence_count": "INTEGER NOT NULL DEFAULT 0"},
+        "v2_compatibility": {"device_type": "TEXT", "catalog_data": "TEXT", "evidence_count": "INTEGER NOT NULL DEFAULT 0", "verification_status": "TEXT"},
+    }
+    for table, columns in additions.items():
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for column, definition in columns.items():
+            if column not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
-def clean(col):
-    if not isinstance(col, str):
-        return col
-    col = col.strip()
-    col = col.replace('（', '(').replace('）', ')')
-    col = re.sub(r'[\u200b\u200c\u200d\ufeff]', '', col)
-    return col
 
-def convert(value, target_unit):
-    if pd.isna(value) or value == '':
-        return None
-    s = str(value).strip()
-    m = re.match(r'([\d.]+)\s*([a-zA-Zμµ]+)?', s)
-    if not m:
-        try:
-            return float(s)
-        except:
-            return None
-    num = float(m.group(1))
-    unit = (m.group(2) or '').lower()
-    if target_unit == 'kg':
-        if unit in ['g', 'gram']:
-            return num / 1000
-        elif unit in ['lb', 'lbs']:
-            return num * 0.453592
-        else:
-            return num
-    elif target_unit == 'rmb':
-        if unit in ['usd', '$']:
-            return num * 7
-        else:
-            return num
-    elif target_unit == 'w':
-        if unit in ['mw', 'milliwatt']:
-            return num / 1000
-        else:
-            return num
-    else:
-        return num
+def load_id_mapping() -> dict[str, str]:
+    path = V2_DIR / "device_id_mapping_v2.xlsx"
+    frame = pd.read_excel(path, sheet_name="ID映射")
+    mapping: dict[str, str] = {}
+    for _, row in frame.iterrows():
+        final_id = clean_value(row.get("最终采用ID"))
+        if not final_id:
+            continue
+        for column in ("旧ID", "新ID", "最终采用ID"):
+            source_id = clean_value(row.get(column))
+            if source_id:
+                mapping[str(source_id)] = str(final_id)
+    return mapping
 
-def process_table(conn, table_name, file_path, mapping, conversions, required, merge_rules=None):
-    """
-    mapping: {目标列: 原始列名}
-    conversions: {目标列: 目标单位}
-    required: [必填目标列]
-    merge_rules: {目标列: [原始列1, 原始列2]} 用于合并多个列的内容
-    """
-    if not os.path.exists(file_path):
-        return 0, 0, f"文件不存在 {file_path}"
 
-    df = pd.read_excel(file_path)
-    if df.empty:
-        return 0, 0, "文件为空"
+def load_compatibility(mapping: dict[str, str]):
+    records: dict[tuple[str, str], dict[str, Any]] = {}
+    evidence: list[tuple[str, str, dict[str, Any]]] = []
+    for device_type, (path, sheet, id_column, evidence_sheet) in COMPATIBILITY_FILES.items():
+        for _, row in pd.read_excel(path, sheet_name=sheet).iterrows():
+            data = row_dict(row)
+            original_id = data.get(id_column)
+            if not original_id:
+                raise ValueError(f"{path.name}: compatibility row has no {id_column}")
+            device_id = mapping.get(str(original_id), str(original_id))
+            data[id_column] = device_id
+            records[(device_type, device_id)] = data
+        for _, row in pd.read_excel(path, sheet_name=evidence_sheet).iterrows():
+            data = row_dict(row)
+            original_id = data.get(id_column)
+            if not original_id:
+                raise ValueError(f"{path.name}: evidence row has no {id_column}")
+            device_id = mapping.get(str(original_id), str(original_id))
+            data[id_column] = device_id
+            evidence.append((device_type, device_id, data))
+    return records, evidence
 
-    df.columns = [clean(c) for c in df.columns]
 
-    if merge_rules:
-        for target, src_cols in merge_rules.items():
-            exist_cols = [c for c in src_cols if c in df.columns]
-            if exist_cols:
-                df[target] = df[exist_cols].apply(
-                    lambda row: '; '.join([str(x) for x in row if pd.notna(x) and str(x).strip() != '']),
-                    axis=1
-                )
+def catalog_projection(device_type: str, data: dict[str, Any]) -> dict[str, Any]:
+    if device_type == "uav":
+        return {
+            "brand": data.get("厂家"), "model": data.get("型号"),
+            "max_payload": number(data.get("标准化最大有效载荷kg") or data.get("最大有效载荷kg")),
+            "endurance": number(data.get("最大飞行时间min")), "weight": number(data.get("空机重量kg")),
+            "flight_range": None, "price": number(data.get("价格参考")),
+            "power": number(data.get("最大外设供电W")), "voltage": data.get("可用电压"),
+            "working_temperature": None, "protection_level": data.get("防护等级"),
+            "source_url": data.get("官方链接"), "data_status": data.get("标准化数据状态") or data.get("采集状态"),
+        }
+    if device_type == "sensor":
+        return {
+            "category": data.get("标准化类别") or data.get("传感器子类") or data.get("传感器大类"),
+            "brand": data.get("厂家"), "model": data.get("型号"), "functions": data.get("完整名称"),
+            "detection_range": number(data.get("探测距离/量程(m)")), "accuracy": data.get("精度"),
+            "weight": number(data.get("标准化重量(kg)")) if data.get("标准化重量(kg)") is not None else number(data.get("重量(g)"), 0.001),
+            "power": number(data.get("功耗(W)")), "voltage": None, "interfaces": data.get("接口"),
+            "working_temperature": data.get("工作温度"), "protection_level": data.get("防护等级"),
+            "price": number(data.get("标准化参考价格(CNY)")), "source_url": data.get("官方链接"),
+            "data_status": data.get("标准化数据状态") or data.get("采集状态"),
+        }
+    return {
+        "brand": data.get("厂家"), "model": data.get("型号"),
+        "cpu": "; ".join(str(v) for v in (data.get("CPU"), data.get("GPU/NPU/FPGA")) if v),
+        "ram": number(data.get("内存")), "storage": number(data.get("板载存储")),
+        "weight": number(data.get("重量(g)"), 0.001), "power": number(data.get("功耗/功耗模式(W)")),
+        "voltage": data.get("供电要求"),
+        "interfaces": "; ".join(str(v) for v in (data.get("USB/网络"), data.get("相机/高速扩展"), data.get("UART/CAN/GPIO")) if v),
+        "working_temperature": data.get("工作温度(°C)"), "protection_level": None,
+        "price": number(data.get("官方价格/采购状态")), "source_url": data.get("官方链接"),
+        "data_status": data.get("采集状态"),
+    }
 
-    rename = {}
-    for target, src in mapping.items():
-        if src in df.columns:
-            rename[src] = target
 
-    if not rename:
-        return 0, 0, "无匹配列"
+def source_digest(paths: list[Path]) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(paths):
+        digest.update(path.name.encode("utf-8"))
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
 
-    df = df.rename(columns=rename)
 
-    keep_cols = list(rename.values())
-    if merge_rules:
-        for target in merge_rules.keys():
-            if target not in keep_cols and target in df.columns:
-                keep_cols.append(target)
-    keep_cols = list(dict.fromkeys(keep_cols))
-    df = df[[c for c in keep_cols if c in df.columns]]
-
-    missing = [f for f in required if f not in df.columns]
+def import_all(db_path: Path = DB_PATH) -> dict[str, int | str]:
+    source_paths = [item[0] for item in CATALOGS.values()]
+    source_paths += [item[0] for item in COMPATIBILITY_FILES.values()]
+    source_paths.append(V2_DIR / "device_id_mapping_v2.xlsx")
+    missing = [str(path) for path in source_paths if not path.exists()]
     if missing:
-        return 0, 0, f"缺少必填列 {missing}"
+        raise FileNotFoundError("Missing import sources: " + ", ".join(missing))
 
-    cursor = conn.cursor()
-    cursor.execute(f"DELETE FROM {table_name}")
-    conn.commit()
+    mapping = load_id_mapping()
+    compatibility, evidence = load_compatibility(mapping)
+    evidence_counts: dict[tuple[str, str], int] = {}
+    for device_type, device_id, _ in evidence:
+        key = (device_type, device_id)
+        evidence_counts[key] = evidence_counts.get(key, 0) + 1
 
-    success = 0
-    fail = 0
-    for idx, row in df.iterrows():
-        try:
-            for f in required:
-                if pd.isna(row[f]) or str(row[f]).strip() == '':
-                    raise ValueError(f"必填字段 {f} 为空")
+    conn = sqlite3.connect(db_path)
+    counts: dict[str, int | str] = {}
+    try:
+        ensure_schema(conn)
+        conn.execute("BEGIN IMMEDIATE")
+        for table in ("drones", "sensors", "computers", "v2_compatibility", "verification_evidence"):
+            conn.execute(f"DELETE FROM {table}")
+            conn.execute("DELETE FROM sqlite_sequence WHERE name = ?", (table,))
 
-            data = {}
-            for col in df.columns:
-                if col in conversions:
-                    data[col] = convert(row[col], conversions[col])
-                else:
-                    data[col] = None if pd.isna(row[col]) else row[col]
+        for device_type, (path, table, id_column) in CATALOGS.items():
+            frame = pd.read_excel(path)
+            seen: set[str] = set()
+            for _, row in frame.iterrows():
+                catalog = row_dict(row)
+                raw_id = catalog.get(id_column)
+                if not raw_id:
+                    raise ValueError(f"{path.name}: catalog row has no {id_column}")
+                device_id = mapping.get(str(raw_id), str(raw_id))
+                if device_id in seen:
+                    raise ValueError(f"{path.name}: duplicate final ID {device_id}")
+                seen.add(device_id)
+                catalog[id_column] = device_id
+                trusted = compatibility.get((device_type, device_id))
+                merged = dict(catalog)
+                if trusted:
+                    merged.update({key: value for key, value in trusted.items() if value is not None})
+                projected = catalog_projection(device_type, merged)
+                verification_status = trusted.get("数据状态") if trusted else None
+                common = {
+                    "device_id": device_id, **projected, "raw_data": json_text(merged),
+                    "verification_status": verification_status,
+                    "evidence_count": evidence_counts.get((device_type, device_id), 0),
+                    "update_date": datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat(),
+                }
+                columns = list(common)
+                conn.execute(
+                    f"INSERT INTO {table} ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})",
+                    [common[column] for column in columns],
+                )
+            counts[table] = len(seen)
 
-            cols = ', '.join(data.keys())
-            placeholders = ', '.join(['?'] * len(data))
-            values = list(data.values())
-            cursor.execute(f"INSERT INTO {table_name} ({cols}) VALUES ({placeholders})", values)
-            success += 1
-        except Exception as e:
-            fail += 1
-    conn.commit()
-    return success, fail, ""
+        catalog_by_key: dict[tuple[str, str], dict[str, Any]] = {}
+        for device_type, (_, table, _) in CATALOGS.items():
+            for device_id, raw in conn.execute(f"SELECT device_id, raw_data FROM {table}"):
+                catalog_by_key[(device_type, device_id)] = json.loads(raw)
 
-def import_all():
-    for f in [UAV_FILE, SENSOR_FILE, COMPUTER_FILE]:
-        if not os.path.exists(f):
-            print(f"错误：文件 {f} 不存在")
-            return
+        for (device_type, device_id), trusted in compatibility.items():
+            catalog = catalog_by_key.get((device_type, device_id))
+            # The verified recommendation layer is intentionally allowed to
+            # contain curated devices outside the broad 791-row catalog.
+            # Overlapping IDs are enriched with catalog data; curated-only IDs
+            # retain their verified record without inflating catalog counts.
+            merged = dict(catalog or {})
+            merged.update({key: value for key, value in trusted.items() if value is not None})
+            conn.execute(
+                "INSERT INTO v2_compatibility (device_id,device_type,raw_data,catalog_data,evidence_count,verification_status) VALUES (?,?,?,?,?,?)",
+                (device_id, device_type, json_text(merged), json_text(catalog) if catalog else None, evidence_counts.get((device_type, device_id), 0), trusted.get("数据状态")),
+            )
 
-    conn = sqlite3.connect(DB_PATH)
-    create_tables(conn)
+        for device_type, device_id, data in evidence:
+            conn.execute(
+                "INSERT INTO verification_evidence (device_type,device_id,field_name,source_url,evidence_status,raw_data) VALUES (?,?,?,?,?,?)",
+                (device_type, device_id, data.get("字段名称"), data.get("官方链接") or data.get("官方来源链接"), data.get("证据状态") or data.get("结论"), json_text(data)),
+            )
 
-    uav_mapping = {
-        'device_id': '无人机ID',      # 新增映射
-        'brand': '厂家',
-        'model': '型号',
-        'max_payload': '最大起飞重量(kg)',
-        'flight_range': '最大航程/作业半径(km)',
-        'working_temperature': '工作温度(°C)',
-        'protection_level': '防护等级',
-        'source_url': '官方链接',
-    }
-    uav_conversions = {
-        'max_payload': 'kg',
-        'price': 'rmb',
-        'power': 'w'
-    }
-    uav_required = ['brand', 'model']
-
-    sensor_mapping = {
-        'device_id': '传感器ID',      # 新增映射
-        'category': '传感器子类',
-        'brand': '厂家',
-        'model': '型号',
-        'functions': '完整名称',
-        'detection_range': '探测距离/量程(m)',
-        'accuracy': '精度',
-        'weight': '单位(g)',
-        'power': '功耗(W)',
-        'interfaces': '接口',
-        'working_temperature': '工作温度',
-        'protection_level': '防护等级',
-        'price': '价格参考',
-        'source_url': '官方链接',
-    }
-    sensor_conversions = {
-        'weight': 'kg',
-        'price': 'rmb',
-        'power': 'w',
-        'detection_range': 'm'
-    }
-    sensor_required = ['category', 'brand', 'model']
-
-    computer_mapping = {
-        'device_id': '计算平台ID',    # 新增映射
-        'brand': '厂家',
-        'model': '型号',
-        'ram': '内存',
-        'storage': '核载存储',
-        'power': '功耗/功耗模式(W)',
-        'weight': '重量(g)',
-        'voltage': '供电要求',
-        'working_temperature': '工作温度(°C)',
-        'price': '官方价格/采购状态',
-        'source_url': '官方链接',
-    }
-
-    computer_merge = {
-        'cpu': ['GPU/NPU/FPGA', 'CPU'], 
-        'interfaces': ['USB/网络', 'UART/CAN/GPIO']
-    }
-    computer_conversions = {
-        'weight': 'kg',
-        'price': 'rmb',
-        'power': 'w'
-    }
-    computer_required = ['brand', 'model']
+        counts["compatibility"] = len(compatibility)
+        counts["evidence"] = len(evidence)
+        counts["total_catalog"] = sum(int(counts[name]) for name in ("drones", "sensors", "computers"))
+        digest = source_digest(source_paths)
+        counts["source_digest"] = digest
+        conn.execute(
+            "INSERT INTO import_state(import_name,source_digest,imported_at,row_count) VALUES(?,?,?,?) "
+            "ON CONFLICT(import_name) DO UPDATE SET source_digest=excluded.source_digest, imported_at=excluded.imported_at, row_count=excluded.row_count",
+            ("catalog_v2", digest, datetime.now(timezone.utc).isoformat(), counts["total_catalog"]),
+        )
+        conn.commit()
+        return counts
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
-    total_success = 0
-    total_fail = 0
-    errors = []
-
-    s, f, err = process_table(conn, 'drones', UAV_FILE, uav_mapping, uav_conversions, uav_required)
-    total_success += s
-    total_fail += f
-    if err:
-        errors.append(f"无人机: {err}")
-
-    s, f, err = process_table(conn, 'sensors', SENSOR_FILE, sensor_mapping, sensor_conversions, sensor_required)
-    total_success += s
-    total_fail += f
-    if err:
-        errors.append(f"传感器: {err}")
-
-    s, f, err = process_table(conn, 'computers', COMPUTER_FILE, computer_mapping, computer_conversions, computer_required, computer_merge)
-    total_success += s
-    total_fail += f
-    if err:
-        errors.append(f"计算机: {err}")
-
-    conn.close()
-
-    if errors:
-        print("导入完成！成功 {} 条，失败 {} 条。警告: {}".format(total_success, total_fail, '; '.join(errors)))
-    else:
-        print(f"导入完成！成功 {total_success} 条，失败 {total_fail} 条。")
-
-if __name__ == '__main__':
-    import_all()
+if __name__ == "__main__":
+    result = import_all()
+    print(json.dumps(result, ensure_ascii=False, indent=2))
