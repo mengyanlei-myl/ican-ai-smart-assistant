@@ -3,8 +3,16 @@ import json
 from flask_cors import CORS
 from flask import Flask, request, jsonify
 from models import db, Drone, Sensor, Computer
-from config import Config
+from config import Config, DB_PATH
 from rules_engine import evaluate_combo
+from decision_service import (
+    ApiValidationError,
+    DeviceNotFoundError,
+    check_compatibility,
+    list_catalog,
+    recommend,
+    stats,
+)
 
 
 def _to_float(value, default=None):
@@ -43,9 +51,12 @@ def _infer_enabled_rules(requirements):
     return enabled_rules
 
 
-def create_app():
+def create_app(config_override=None):
     app = Flask(__name__)
     app.config.from_object(Config)
+    app.config['DATABASE_PATH'] = DB_PATH
+    if config_override:
+        app.config.update(config_override)
     CORS(app)
     db.init_app(app)
 
@@ -198,7 +209,7 @@ def create_app():
     @app.route('/api/v2/devices', methods=['GET'])
     def get_v2_devices():
         device_type = request.args.get('type', '').lower()
-        conn = sqlite3.connect('data/low_altitude_selection.db')
+        conn = sqlite3.connect(app.config['DATABASE_PATH'])
         cursor = conn.cursor()
         cursor.execute("SELECT device_id, raw_data FROM v2_compatibility")
         rows = cursor.fetchall()
@@ -230,7 +241,7 @@ def create_app():
         # 兼容性检查接口保留手动传规则的能力，也支持自动推断
         enabled_rules = data.get('enabled_rules') or _infer_enabled_rules(data.get('requirements', {}))
         
-        conn = sqlite3.connect('data/low_altitude_selection.db')
+        conn = sqlite3.connect(app.config['DATABASE_PATH'])
         cursor = conn.cursor()
         
         def get_device(dev_id):
@@ -271,7 +282,7 @@ def create_app():
         if not enabled_rules:
             enabled_rules = _infer_enabled_rules(requirements)
         
-        conn = sqlite3.connect('data/low_altitude_selection.db')
+        conn = sqlite3.connect(app.config['DATABASE_PATH'])
         cursor = conn.cursor()
         cursor.execute("SELECT device_id, raw_data FROM v2_compatibility")
         rows = cursor.fetchall()
@@ -337,44 +348,118 @@ def create_app():
             'top_3': top_3                            # 兼容旧字段
         })
 
+    # ==================== 阶段 7：目录、判定与推荐 API ====================
+    def pagination_args():
+        try:
+            page = int(request.args.get('page', 1))
+            page_size = int(request.args.get('page_size', 20))
+        except (TypeError, ValueError):
+            raise ApiValidationError('page 和 page_size 必须是整数')
+        if page < 1:
+            raise ApiValidationError('page 必须大于等于 1')
+        if page_size < 1 or page_size > 100:
+            raise ApiValidationError('page_size 必须在 1～100 之间')
+        return page, page_size
+
+    def catalog_response(device_type):
+        page, page_size = pagination_args()
+        verification_status = request.args.get('verification_status')
+        if verification_status and verification_status not in {'verified', 'partial', 'catalog_only'}:
+            raise ApiValidationError('verification_status 必须是 verified、partial 或 catalog_only')
+        return list_catalog(
+            app.config['DATABASE_PATH'], device_type,
+            q=request.args.get('q'), page=page, page_size=page_size,
+            verification_status=verification_status,
+            brand=request.args.get('brand') or request.args.get('厂家'),
+            category=request.args.get('category') or request.args.get('类别'),
+        )
+
+    @app.errorhandler(ApiValidationError)
+    def handle_validation_error(error):
+        return jsonify({'status': 'error', 'error': str(error)}), 400
+
+    @app.errorhandler(DeviceNotFoundError)
+    def handle_not_found(error):
+        return jsonify({'status': 'error', 'error': str(error)}), 404
+
+    @app.route('/api/v2/drones', methods=['GET'])
+    def list_v2_drones():
+        return jsonify(catalog_response('drone'))
+
+    @app.route('/api/v2/sensors', methods=['GET'])
+    def list_v2_sensors():
+        return jsonify(catalog_response('sensor'))
+
+    @app.route('/api/v2/computers', methods=['GET'])
+    def list_v2_computers():
+        return jsonify(catalog_response('computer'))
+
+    @app.route('/api/v2/compatibility/check', methods=['POST'])
+    def compatibility_check_v2():
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            raise ApiValidationError('请求体必须是 JSON 对象')
+        drone_id = payload.get('drone_id')
+        sensor_ids = payload.get('sensor_ids')
+        computer_id = payload.get('computer_id')
+        requirements = payload.get('task_requirements', {})
+        enabled_rules = payload.get('enabled_rules')
+        if not isinstance(drone_id, str) or not drone_id.strip():
+            raise ApiValidationError('drone_id 必须是非空字符串')
+        if not isinstance(sensor_ids, list) or not sensor_ids or any(not isinstance(item, str) or not item.strip() for item in sensor_ids):
+            raise ApiValidationError('sensor_ids 必须是包含至少一个非空 ID 的数组')
+        if len(set(sensor_ids)) != len(sensor_ids):
+            raise ApiValidationError('sensor_ids 不得重复')
+        if not isinstance(computer_id, str) or not computer_id.strip():
+            raise ApiValidationError('computer_id 必须是非空字符串')
+        if not isinstance(requirements, dict):
+            raise ApiValidationError('task_requirements 必须是对象')
+        if enabled_rules is not None:
+            if not isinstance(enabled_rules, list) or not enabled_rules or any(rule not in {'R01', 'R02', 'R03', 'R04', 'R05', 'R06', 'R07'} for rule in enabled_rules):
+                raise ApiValidationError('enabled_rules 必须是 R01～R07 的非空数组')
+            if len(set(enabled_rules)) != len(enabled_rules):
+                raise ApiValidationError('enabled_rules 不得重复')
+        return jsonify(check_compatibility(app.config['DATABASE_PATH'], drone_id.strip(), [item.strip() for item in sensor_ids], computer_id.strip(), requirements, enabled_rules))
+
+    @app.route('/api/v2/recommendations', methods=['POST'])
+    def recommendations_v2():
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            raise ApiValidationError('请求体必须是 JSON 对象')
+        requirements = payload.get('requirements', {})
+        if not isinstance(requirements, dict):
+            raise ApiValidationError('requirements 必须是对象')
+        top_n = payload.get('top_n', 10)
+        if isinstance(top_n, bool) or not isinstance(top_n, int) or top_n < 1 or top_n > 50:
+            raise ApiValidationError('top_n 必须是 1～50 的整数')
+        allow_manual = payload.get('allow_manual_review', True)
+        if not isinstance(allow_manual, bool):
+            raise ApiValidationError('allow_manual_review 必须是布尔值')
+        weights = payload.get('weights', {})
+        if not isinstance(weights, dict):
+            raise ApiValidationError('weights 必须是对象')
+        return jsonify(recommend(app.config['DATABASE_PATH'], requirements, top_n, allow_manual, weights))
+
+    @app.route('/api/v2/stats', methods=['GET'])
+    def stats_v2():
+        return jsonify(stats(app.config['DATABASE_PATH']))
+
     # ==================== V2 健康检查 ====================
     @app.route('/api/health', methods=['GET'])
     def health_check():
-        conn = sqlite3.connect('data/low_altitude_selection.db')
-        cursor = conn.cursor()
-        
-        cursor.execute("SELECT COUNT(*) FROM drones")
-        drones_count = cursor.fetchone()[0]
-        cursor.execute("SELECT COUNT(*) FROM sensors")
-        sensors_count = cursor.fetchone()[0]
-        cursor.execute("SELECT COUNT(*) FROM computers")
-        computers_count = cursor.fetchone()[0]
-        
-        cursor.execute("SELECT device_type, COUNT(*) FROM v2_compatibility WHERE verification_status = 'verified' GROUP BY device_type")
-        verified_counts = {device_type: count for device_type, count in cursor.fetchall()}
-        cursor.execute("SELECT COUNT(*) FROM verification_evidence")
-        evidence_count = cursor.fetchone()[0]
-        cursor.execute("SELECT COUNT(*) FROM v2_compatibility")
-        compatibility_count = cursor.fetchone()[0]
-        
-        conn.close()
-        
+        current = stats(app.config['DATABASE_PATH'])
         return jsonify({
             "status": "ok",
             "database": "ok",
             "compatibility_version": "v2",
             "catalog_counts": {
-                "drones": drones_count,
-                "sensors": sensors_count,
-                "computers": computers_count
+                "drones": current["catalog_counts"]["drone"],
+                "sensors": current["catalog_counts"]["sensor"],
+                "computers": current["catalog_counts"]["computer"],
             },
-            "verified_counts": {
-                "drones": verified_counts.get("uav", 0),
-                "sensors": verified_counts.get("sensor", 0),
-                "computers": verified_counts.get("computer", 0)
-            },
-            "compatibility_records": compatibility_count,
-            "verification_evidence": evidence_count
+            "verified_counts": current["verification_status_counts"],
+            "compatibility_records": current["compatibility_records"],
+            "verification_evidence": current["field_evidence_records"],
         })
 
     return app

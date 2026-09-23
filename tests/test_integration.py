@@ -67,8 +67,10 @@ def test_trusted_layer_is_merged_and_nulls_remain_null(tmp_path):
     assert any(value is None for payload in all_payloads for value in payload.values())
 
 
-def test_health_endpoint_reports_integrated_counts():
-    app = create_app()
+def test_health_endpoint_reports_integrated_counts(tmp_path):
+    db_path = tmp_path / "health.db"
+    import_all(db_path)
+    app = create_app({"TESTING": True, "DATABASE_PATH": str(db_path), "SQLALCHEMY_DATABASE_URI": f"sqlite:///{db_path.as_posix()}"})
     response = app.test_client().get("/api/health")
     assert response.status_code == 200
     body = response.get_json()
