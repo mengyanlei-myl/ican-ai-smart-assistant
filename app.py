@@ -13,6 +13,7 @@ from decision_service import (
     recommend,
     stats,
 )
+from semantic_recommendation_service import recommend_from_text
 
 
 def _to_float(value, default=None):
@@ -439,6 +440,31 @@ def create_app(config_override=None):
         if not isinstance(weights, dict):
             raise ApiValidationError('weights 必须是对象')
         return jsonify(recommend(app.config['DATABASE_PATH'], requirements, top_n, allow_manual, weights))
+
+    @app.route('/api/v2/recommendations/semantic', methods=['POST'])
+    def semantic_recommendations_v2():
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            raise ApiValidationError('请求体必须是 JSON 对象')
+        allowed_fields = {'text', 'top_n', 'allow_manual_review', 'weights'}
+        unknown_fields = sorted(set(payload) - allowed_fields)
+        if unknown_fields:
+            raise ApiValidationError(f"不允许的请求字段: {', '.join(unknown_fields)}")
+        if 'text' not in payload:
+            raise ApiValidationError('text 为必填字段')
+        text = payload['text']
+        if not isinstance(text, str):
+            raise ApiValidationError('text 必须是字符串')
+        top_n = payload.get('top_n', 10)
+        if isinstance(top_n, bool) or not isinstance(top_n, int) or top_n < 1 or top_n > 50:
+            raise ApiValidationError('top_n 必须是 1～50 的整数')
+        allow_manual = payload.get('allow_manual_review', True)
+        if not isinstance(allow_manual, bool):
+            raise ApiValidationError('allow_manual_review 必须是布尔值')
+        weights = payload.get('weights', {})
+        if not isinstance(weights, dict):
+            raise ApiValidationError('weights 必须是对象')
+        return jsonify(recommend_from_text(text, top_n, allow_manual, weights))
 
     @app.route('/api/v2/stats', methods=['GET'])
     def stats_v2():
