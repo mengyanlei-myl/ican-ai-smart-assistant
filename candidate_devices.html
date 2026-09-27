@@ -185,7 +185,62 @@
             }
         }
 
-        init();
+        // D4 uses the semantic response already stored by task_input.html.
+    </script>
+    <script>
+        function semanticStatusClass(status) {
+            if (status === 'pass' || status === 'satisfied') return 'status-pass';
+            if (status === 'fail' || status === 'rejected') return 'status-fail';
+            return 'status-manual';
+        }
+
+        function renderSemanticCandidates(result) {
+            const container = document.getElementById('deviceList');
+            const items = (((result || {}).recommendation || {}).items || []);
+            if (!result) throw new Error('未找到语义推荐结果，请从任务输入页重新开始');
+            if (result.request_status === 'needs_clarification') {
+                container.innerHTML = `<div class="error">需要澄清：${(result.clarification_questions || []).join('；') || '请重新确认任务要求'}</div>`;
+                document.getElementById('totalBadge').textContent = '需要澄清';
+                return;
+            }
+            if (result.request_status === 'not_evaluated') {
+                container.innerHTML = '<div class="empty">当前要求未执行推荐，请确认不支持的约束。</div>';
+                document.getElementById('totalBadge').textContent = '未评估';
+                return;
+            }
+            if (!items.length) {
+                container.innerHTML = '<div class="empty">筛选后没有候选组合，推荐状态为 none。</div>';
+                document.getElementById('totalBadge').textContent = '无候选';
+                return;
+            }
+            container.innerHTML = items.slice(0, 3).map((combo, index) => {
+                const constraints = (combo.constraint_results || []).map(item =>
+                    `<span class="combo-status ${semanticStatusClass(item.status)}">${item.constraint_id}: ${item.status}</span>`
+                ).join(' ');
+                return `<div class="category-section">
+                    <div class="category-title">候选组合 ${index + 1}<span class="combo-status status-manual">暂定推荐/待人工复核</span></div>
+                    <div class="device-grid">
+                        <div class="device-card"><div class="model">无人机</div><div class="brand">${combo.drone_id}</div></div>
+                        <div class="device-card"><div class="model">传感器</div><div class="brand">${(combo.sensor_ids || []).join('、')}</div></div>
+                        <div class="device-card"><div class="model">计算平台</div><div class="brand">${combo.computer_id}</div></div>
+                    </div>
+                    <div class="specs">筛选结果：${constraints || '无可执行约束结果'}</div>
+                </div>`;
+            }).join('');
+            const link = document.createElement('a');
+            link.href = 'initial_solution.html';
+            link.className = 'badge';
+            link.textContent = '查看初步方案 →';
+            container.appendChild(link);
+            document.getElementById('totalBadge').textContent = `展示 ${Math.min(items.length, 3)} 个候选组合`;
+        }
+
+        try {
+            renderSemanticCandidates(JSON.parse(localStorage.getItem('semanticResponse') || 'null'));
+        } catch (error) {
+            document.getElementById('deviceList').innerHTML = `<div class="error">接口结果读取失败：${error.message}</div>`;
+            document.getElementById('totalBadge').textContent = '读取失败';
+        }
     </script>
 </body>
 </html>

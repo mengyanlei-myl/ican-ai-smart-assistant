@@ -124,5 +124,52 @@
             window.location.href = 'requirement_confirmation.html';
         }
     </script>
+    <script>
+        async function handleSubmit(event) {
+            event.preventDefault();
+            const taskDesc = document.getElementById('taskDesc').value.trim();
+            const budget = document.getElementById('budget').value;
+            const minFlightTime = document.getElementById('flightTime').value;
+            const requirements = {
+                taskDesc,
+                budget,
+                minFlightTime,
+                maxPayload: document.getElementById('payload').value,
+                requiredFunctions: Array.from(document.getElementById('functions').selectedOptions).map(option => option.value),
+                environment: document.getElementById('environment').value,
+                priority: document.getElementById('priority').value
+            };
+            const fragments = [];
+            if (taskDesc) fragments.push(taskDesc);
+            if (!taskDesc && budget) fragments.push(`整套方案预算不超过 ${budget} 元`);
+            if (!taskDesc && minFlightTime) fragments.push(`至少续航 ${minFlightTime} 分钟`);
+            const text = fragments.join('，');
+            let message = document.getElementById('semanticSubmitMessage');
+            if (!message) {
+                message = document.createElement('div');
+                message.id = 'semanticSubmitMessage';
+                message.className = 'hint';
+                event.target.appendChild(message);
+            }
+            message.style.color = '#5d6d7e';
+            message.textContent = '正在解析任务并筛选可信候选设备…';
+            try {
+                const response = await fetch('http://127.0.0.1:5000/api/v2/recommendations/semantic', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text, top_n: 3, allow_manual_review: true, weights: {} })
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.error || '语义推荐接口请求失败');
+                localStorage.setItem('requirements', JSON.stringify(requirements));
+                localStorage.setItem('semanticRequest', JSON.stringify({ text, top_n: 3 }));
+                localStorage.setItem('semanticResponse', JSON.stringify(result));
+                window.location.href = 'requirement_confirmation.html';
+            } catch (error) {
+                message.style.color = '#e74c3c';
+                message.textContent = `接口错误：${error.message}`;
+            }
+        }
+    </script>
 </body>
 </html>
