@@ -34,8 +34,7 @@ def assert_safely_gated(result, reason):
     assert result["options_applied"] is False
 
 
-def test_ready_is_gated_without_stage7_or_database(monkeypatch):
-    forbid_stage7(monkeypatch)
+def test_ready_invokes_stage7_adapter_after_d2_candidate_filtering():
     result = recommend_from_text("预算10万元，至少续航30分钟", db_path=str(DB_PATH))
     assert result["request_status"] == "ready"
     assert result["parsed_requirements"]["hard_constraints"] == {
@@ -47,10 +46,10 @@ def test_ready_is_gated_without_stage7_or_database(monkeypatch):
     assert result["recommendation_disposition"] == "provisional"
     assert result["recommendation"]["items"]
     assert result["options_applied"] is True
-    assert result["applied_control_options"] == ["top_n", "allow_manual_review"]
-    assert result["unapplied_control_options"] == ["weights"]
-    assert result["rule_execution"]["invoked"] is False
-    assert result["rule_execution"]["disabled_rules"] == DISABLED_RULES
+    assert result["applied_control_options"] == ["top_n", "allow_manual_review", "weights"]
+    assert result["unapplied_control_options"] == []
+    assert result["rule_execution"]["invoked"] is True
+    assert result["rule_execution"]["enabled_rules"]
 
 
 def test_needs_clarification_returns_questions_without_execution(monkeypatch):
@@ -76,7 +75,7 @@ def test_soft_preferences_only_do_not_produce_candidates(monkeypatch):
     assert result["parsed_requirements"]["soft_preferences"]
     assert result["options_applied"] is False
     assert result["applied_control_options"] == []
-    assert result["unapplied_control_options"] == ["weights"]
+    assert result["unapplied_control_options"] == ["top_n", "allow_manual_review", "weights"]
     assert_safely_gated(result, "unsupported_or_no_executable_hard_constraints")
 
 
@@ -136,13 +135,13 @@ def test_all_request_states_are_never_final():
         assert result["combination_verified"] is False
 
 
-def test_all_stage7_rules_are_disabled_for_every_status():
-    for text in ("预算10万元", "载荷2kg", "优先续航长"):
+def test_stage7_rules_remain_disabled_for_gated_statuses():
+    for text in ("载荷2kg", "优先续航长"):
         execution = recommend_from_text(text, db_path=str(DB_PATH))["rule_execution"]
         assert execution["disabled_rules"] == ["R01", "R02", "R03", "R04", "R05", "R06", "R07"]
         assert execution["results"] == []
 
 
 def test_same_input_and_options_are_deterministic():
-    args = ("预算10万元，至少续航30分钟", 7, True, {"ignored": 1})
+    args = ("预算10万元，至少续航30分钟", 7, True, {"task_constraint_fit": 30})
     assert recommend_from_text(*args, db_path=str(DB_PATH)) == recommend_from_text(*args, db_path=str(DB_PATH))

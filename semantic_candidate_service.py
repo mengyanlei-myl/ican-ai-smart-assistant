@@ -274,7 +274,7 @@ def evaluate_trusted_candidates(
     db_path: str | Path,
     constraints: dict[str, Any],
     *,
-    top_n: int,
+    top_n: int | None,
     allow_manual_review: bool,
 ) -> dict[str, Any]:
     """Evaluate supported D2 constraints without invoking Stage 7 rules."""
@@ -341,7 +341,7 @@ def evaluate_trusted_candidates(
         -(item["_endurance_margin"] if item["_endurance_margin"] is not None else float("-inf")),
         item["drone_id"], item["sensor_ids"], item["computer_id"],
     ))
-    selected = items[:top_n]
+    selected = items if top_n is None else items[:top_n]
     for item in selected:
         item.pop("_payload_margin")
         item.pop("_endurance_margin")

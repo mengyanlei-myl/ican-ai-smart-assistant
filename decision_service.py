@@ -292,6 +292,118 @@ def recommend(db_path: str | Path, requirements: dict[str, Any], top_n: int, all
     }
 
 
+def _semantic_rule_result(rule_id: str, constraint_results: list[dict[str, Any]]) -> dict[str, Any] | None:
+    constraint_ids = {
+        "R01": ("stage8_payload",),
+        "R02": ("stage8_budget",),
+        "R06": ("stage8_temperature", "stage8_protection"),
+    }.get(rule_id, ())
+    matched = [item for item in constraint_results if item.get("constraint_id") in constraint_ids]
+    if not matched:
+        return None
+    statuses = {item["status"] for item in matched}
+    status = "fail" if "rejected" in statuses else "manual_review" if "insufficient_data" in statuses else "pass"
+    return {
+        "rule_id": rule_id,
+        "status": status,
+        "reason": "Stage 8 semantic constraint result bridged without changing the underlying evaluation.",
+        "compared_values": {item["constraint_id"]: item["compared_values"] for item in matched},
+        "missing_fields": sorted({field for item in matched for field in item["missing_device_fields"]}),
+        "evidence_sources": [],
+    }
+
+
+def evaluate_semantic_candidates(
+    db_path: str | Path,
+    candidates: list[dict[str, Any]],
+    requirements: dict[str, Any],
+    *,
+    top_n: int,
+    allow_manual_review: bool,
+    custom_weights: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Apply the existing Stage 7 rule and scoring chain to D2 candidate IDs."""
+
+    weights = _validated_weights(custom_weights)
+    stage7_rules = ["R03", "R04"]
+    device_cache: dict[tuple[str, str], dict[str, Any]] = {}
+    with connect(db_path) as conn:
+        def load(device_type: str, device_id: str) -> dict[str, Any]:
+            key = (device_type, device_id)
+            if key not in device_cache:
+                device_cache[key] = get_decision_device(conn, device_type, device_id)
+            return device_cache[key]
+
+        evaluated_items = []
+        for candidate in candidates:
+            drone = load("drone", candidate["drone_id"])
+            sensors = [load("sensor", sensor_id) for sensor_id in candidate["sensor_ids"]]
+            computer = load("computer", candidate["computer_id"])
+            stage7 = evaluate_rules(drone, sensors, computer, requirements, stage7_rules)
+            stage7_by_rule = {item["rule_id"]: item for item in stage7["rule_results"]}
+            rule_results = []
+            for rule_id in RULE_IDS:
+                result = stage7_by_rule.get(rule_id) or _semantic_rule_result(
+                    rule_id, candidate["constraint_results"]
+                )
+                if result is None:
+                    result = {
+                        "rule_id": rule_id,
+                        "status": "not_evaluated",
+                        "reason": "The rule is not applicable or is not safely enabled for this semantic request.",
+                        "compared_values": {},
+                        "missing_fields": [],
+                        "evidence_sources": [],
+                    }
+                rule_results.append(result)
+
+            determinate_results = [item for item in rule_results if item["status"] != "not_evaluated"]
+            scoring_result = {"rule_results": determinate_results}
+            devices = [drone, *sensors, computer]
+            score, breakdown, coverage = _score(scoring_result, devices, weights)
+            statuses = {item["status"] for item in determinate_results}
+            if "fail" in statuses:
+                continue
+            if "manual_review" in statuses and not allow_manual_review:
+                continue
+            missing_fields = sorted({
+                *candidate["missing_device_fields"],
+                *(field for item in rule_results for field in item["missing_fields"]),
+            })
+            reasons = [
+                {"source": item["constraint_id"], "status": item["status"], "reason": item["reason"]}
+                for item in candidate["constraint_results"]
+            ] + [
+                {"source": item["rule_id"], "status": item["status"], "reason": item["reason"]}
+                for item in rule_results
+            ]
+            evaluated_items.append({
+                **candidate,
+                "score": score,
+                "score_breakdown": breakdown,
+                "coverage": coverage,
+                "rule_results": rule_results,
+                "missing_fields": missing_fields,
+                "reasons": reasons,
+                "combination_verified": False,
+                "recommendation_disposition": "provisional",
+                "is_final": False,
+            })
+
+    evaluated_items.sort(key=lambda item: (
+        -item["score"], item["drone_id"], item["sensor_ids"], item["computer_id"]
+    ))
+    return {
+        "items": evaluated_items[:top_n],
+        "weights": weights,
+        "enabled_rules": [
+            rule_id for rule_id in RULE_IDS
+            if any(result["rule_id"] == rule_id and result["status"] != "not_evaluated"
+                   for item in evaluated_items for result in item["rule_results"])
+        ],
+    }
+
+
 def stats(db_path: str | Path) -> dict[str, Any]:
     with connect(db_path) as conn:
         counts = {key: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for key, table in TABLES.items()}

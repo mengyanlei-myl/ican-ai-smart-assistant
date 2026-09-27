@@ -1,13 +1,10 @@
-"""Stage 8 semantic request orchestration without recommendation execution.
-
-This first integration boundary intentionally performs no database access and
-does not invoke the Stage 7 rule or recommendation services.
-"""
+"""Stage 8 semantic parsing, candidate gating, and Stage 7 rule orchestration."""
 
 from __future__ import annotations
 
 from typing import Any
 
+from decision_service import evaluate_semantic_candidates
 from semantic_parser import parse_task_requirements
 from semantic_candidate_service import evaluate_trusted_candidates
 
@@ -36,14 +33,8 @@ def recommend_from_text(
     *,
     db_path: str | None = None,
 ) -> dict[str, Any]:
-    """Parse text and return a safely gated, deterministic response.
+    """Parse text once and return a safely gated, deterministic response."""
 
-    The control options are accepted for API compatibility but deliberately
-    remain unapplied in D1 because no candidates are queried or ranked.
-    Validation of HTTP input belongs to the route boundary.
-    """
-
-    del weights
     parsed = parse_task_requirements(text)
     request_status = parsed["request_status"]
     if request_status not in _REASONS:
@@ -88,7 +79,7 @@ def recommend_from_text(
         if db_path is None:
             raise ValueError("db_path is required for executable D2 constraints")
         candidate_result = evaluate_trusted_candidates(
-            db_path, hard, top_n=top_n, allow_manual_review=allow_manual_review
+            db_path, hard, top_n=None, allow_manual_review=allow_manual_review
         )
     elif request_status == "ready":
         request_status = "not_evaluated"
@@ -100,7 +91,17 @@ def recommend_from_text(
     parsed_requirements["unsupported_constraints"] = unsupported_constraints
 
     database_queried = candidate_result is not None
-    items = candidate_result["items"] if candidate_result else []
+    stage7_result = None
+    if candidate_result is not None:
+        stage7_result = evaluate_semantic_candidates(
+            db_path,
+            candidate_result["items"],
+            hard,
+            top_n=top_n,
+            allow_manual_review=allow_manual_review,
+            custom_weights=weights,
+        )
+    items = stage7_result["items"] if stage7_result else []
     reason = _REASONS[request_status]
     if database_queried:
         reason = "trusted_candidates_provisional" if items else "no_candidates_after_d2_constraints"
@@ -111,11 +112,17 @@ def recommend_from_text(
         "clarification_questions": clarification_questions,
         "unsupported_constraints": unsupported_constraints,
         "rule_execution": {
-            "invoked": False,
-            "enabled_rules": [],
-            "evaluated_rules": [],
-            "disabled_rules": list(DISABLED_RULES),
-            "results": [],
+            "invoked": stage7_result is not None,
+            "enabled_rules": stage7_result["enabled_rules"] if stage7_result else [],
+            "evaluated_rules": stage7_result["enabled_rules"] if stage7_result else [],
+            "disabled_rules": [
+                rule_id for rule_id in DISABLED_RULES
+                if not stage7_result or rule_id not in stage7_result["enabled_rules"]
+            ],
+            "results": [
+                {"rule_id": rule_id, "status": "evaluated_per_candidate"}
+                for rule_id in (stage7_result["enabled_rules"] if stage7_result else [])
+            ],
         },
         "recommendation": {
             "database_queried": database_queried,
@@ -140,8 +147,8 @@ def recommend_from_text(
         "is_final": False,
         "combination_verified": False,
         "options_applied": database_queried,
-        "applied_control_options": ["top_n", "allow_manual_review"] if database_queried else [],
-        "unapplied_control_options": ["weights"],
+        "applied_control_options": ["top_n", "allow_manual_review", "weights"] if database_queried else [],
+        "unapplied_control_options": [] if database_queried else ["top_n", "allow_manual_review", "weights"],
     }
 
 

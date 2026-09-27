@@ -9,11 +9,9 @@ from app import create_app
 @pytest.fixture()
 def client(monkeypatch):
     def forbidden(*args, **kwargs):
-        raise AssertionError("Stage 7 or database service must not be called")
+        raise AssertionError("legacy recommendation route must not be called")
 
     monkeypatch.setattr(decision_service, "recommend", forbidden)
-    monkeypatch.setattr(decision_service, "connect", forbidden)
-    monkeypatch.setattr(rules_engine, "evaluate_rules", forbidden)
     monkeypatch.setattr(app_module, "recommend", forbidden)
     application = create_app({"TESTING": True})
     return application.test_client()
@@ -24,20 +22,20 @@ def test_normal_chinese_request_returns_200_and_safe_response(client):
         "text": "预算10万元，至少续航30分钟",
         "top_n": 5,
         "allow_manual_review": False,
-        "weights": {"reserved": 1},
+        "weights": {"task_constraint_fit": 30},
     })
     assert response.status_code == 200
     body = response.get_json()
     assert body["request_status"] == "ready"
-    assert body["rule_execution"]["invoked"] is False
+    assert body["rule_execution"]["invoked"] is True
     assert body["recommendation"]["database_queried"] is True
     assert body["recommendation"]["items"] == []  # allow_manual_review=false excludes incomplete budget candidates
     assert body["recommendation"]["reason"] == "no_candidates_after_d2_constraints"
     assert body["candidate_pool_scope"]["trusted_device_records"] == 25
     assert body["candidate_pool_scope"]["full_catalog_used"] is False
     assert body["options_applied"] is True
-    assert body["applied_control_options"] == ["top_n", "allow_manual_review"]
-    assert body["unapplied_control_options"] == ["weights"]
+    assert body["applied_control_options"] == ["top_n", "allow_manual_review", "weights"]
+    assert body["unapplied_control_options"] == []
 
 
 @pytest.mark.parametrize("payload,error", [
