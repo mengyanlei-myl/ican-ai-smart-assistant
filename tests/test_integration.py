@@ -78,6 +78,18 @@ def test_health_endpoint_reports_integrated_counts(tmp_path):
     assert body["verification_evidence"] == 214
 
 
+def test_v2_health_endpoint_reuses_health_check(tmp_path):
+    db_path = tmp_path / "health-v2.db"
+    import_all(db_path)
+    app = create_app({"TESTING": True, "DATABASE_PATH": str(db_path), "SQLALCHEMY_DATABASE_URI": f"sqlite:///{db_path.as_posix()}"})
+    response = app.test_client().get("/api/v2/health")
+    assert response.status_code == 200
+    assert response.is_json
+    body = response.get_json()
+    assert body["status"] == "ok"
+    assert body["api_version"] == "v2"
+
+
 def test_missing_rule_data_requires_manual_review():
     combo = {"uav": {}, "sensor": {}, "computer": {}, "requirements": {"任务载荷/安装余量(kg)": 0.5}}
     status, _ = evaluate_combo(combo, ["R01"])

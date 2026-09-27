@@ -473,10 +473,11 @@ def create_app(config_override=None):
         return jsonify(stats(app.config['DATABASE_PATH']))
 
     # ==================== V2 健康检查 ====================
+    @app.route('/api/v2/health', methods=['GET'])
     @app.route('/api/health', methods=['GET'])
     def health_check():
         current = stats(app.config['DATABASE_PATH'])
-        return jsonify({
+        payload = {
             "status": "ok",
             "database": "ok",
             "compatibility_version": "v2",
@@ -488,7 +489,10 @@ def create_app(config_override=None):
             "verified_counts": current["verification_status_counts"],
             "compatibility_records": current["compatibility_records"],
             "verification_evidence": current["field_evidence_records"],
-        })
+        }
+        if request.path == '/api/v2/health':
+            payload["api_version"] = "v2"
+        return jsonify(payload)
 
     return app
 
