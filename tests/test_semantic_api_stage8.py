@@ -30,10 +30,14 @@ def test_normal_chinese_request_returns_200_and_safe_response(client):
     body = response.get_json()
     assert body["request_status"] == "ready"
     assert body["rule_execution"]["invoked"] is False
-    assert body["recommendation"]["database_queried"] is False
-    assert body["recommendation"]["items"] == []
-    assert body["recommendation"]["reason"] == "semantic_ready_rule_bridge_pending"
-    assert body["options_applied"] is False
+    assert body["recommendation"]["database_queried"] is True
+    assert body["recommendation"]["items"] == []  # allow_manual_review=false excludes incomplete budget candidates
+    assert body["recommendation"]["reason"] == "no_candidates_after_d2_constraints"
+    assert body["candidate_pool_scope"]["trusted_device_records"] == 25
+    assert body["candidate_pool_scope"]["full_catalog_used"] is False
+    assert body["options_applied"] is True
+    assert body["applied_control_options"] == ["top_n", "allow_manual_review"]
+    assert body["unapplied_control_options"] == ["weights"]
 
 
 @pytest.mark.parametrize("payload,error", [
@@ -100,6 +104,53 @@ def test_clarification_and_unsupported_statuses_are_not_pass(client):
     assert unsupported["request_status"] == "not_evaluated"
     assert unsupported["unsupported_constraints"]
     assert unsupported["rule_execution"]["results"] == []
+
+
+def test_supported_constraint_returns_only_provisional_candidates(client):
+    body = client.post("/api/v2/recommendations/semantic", json={
+        "text": "至少续航30分钟", "top_n": 5, "allow_manual_review": True,
+    }).get_json()
+    assert body["request_status"] == "ready"
+    assert body["database_queried"] is True
+    assert body["recommendation_disposition"] == "provisional"
+    assert body["is_final"] is False
+    assert body["combination_verified"] is False
+    assert len(body["recommendation"]["items"]) <= 5
+
+
+def test_supported_plus_r07_constraint_does_not_query(client):
+    body = client.post("/api/v2/recommendations/semantic", json={
+        "text": "至少续航30分钟，操作系统要求 Ubuntu"
+    }).get_json()
+    assert body["request_status"] == "not_evaluated"
+    assert body["database_queried"] is False
+    assert body["recommendation"]["items"] == []
+
+
+def test_reversed_temperature_range_api_requires_clarification(client):
+    response = client.post("/api/v2/recommendations/semantic", json={
+        "text": "工作温度 40℃ 到 -10℃"
+    })
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["request_status"] == "needs_clarification"
+    assert body["database_queried"] is False
+    assert body["recommendation_disposition"] == "none"
+    assert body["recommendation"]["items"] == []
+    assert body["recommendation"]["is_final_recommendation"] is False
+    assert body["clarification_questions"] == [
+        "最低工作温度不能高于最高工作温度，请重新确认温度范围。"
+    ]
+
+
+def test_ordered_temperature_range_api_enters_candidate_evaluation(client):
+    response = client.post("/api/v2/recommendations/semantic", json={
+        "text": "工作温度 -10℃ 到 40℃"
+    })
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["request_status"] == "ready"
+    assert body["database_queried"] is True
 
 
 def test_existing_recommendations_route_is_unchanged():

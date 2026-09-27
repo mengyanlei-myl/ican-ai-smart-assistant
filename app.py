@@ -464,7 +464,9 @@ def create_app(config_override=None):
         weights = payload.get('weights', {})
         if not isinstance(weights, dict):
             raise ApiValidationError('weights 必须是对象')
-        return jsonify(recommend_from_text(text, top_n, allow_manual, weights))
+        return jsonify(recommend_from_text(
+            text, top_n, allow_manual, weights, db_path=app.config['DATABASE_PATH']
+        ))
 
     @app.route('/api/v2/stats', methods=['GET'])
     def stats_v2():

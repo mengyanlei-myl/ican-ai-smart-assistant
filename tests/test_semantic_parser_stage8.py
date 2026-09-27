@@ -74,6 +74,55 @@ def test_temperature_range_and_protection_are_separate():
     assert "protection_rating" in result["field_evidence"]
 
 
+@pytest.mark.parametrize("text,scope,device_types", [
+    ("需要 IP67", "exposed_devices", []),
+    ("整套系统 IP67", "all_devices", []),
+    ("无人机和传感器 IP67", "specified_devices", ["drone", "sensor"]),
+])
+def test_protection_scope_and_device_types(text, scope, device_types):
+    result = parse_task_requirements(text)
+    hard = result["hard_constraints"]
+    assert hard["protection_rating"] == "IP67"
+    assert hard["protection_scope"] == scope
+    assert hard["specified_protected_device_types"] == device_types
+
+
+def test_protection_device_types_have_fixed_order_and_no_duplicates():
+    result = parse_task_requirements("传感器、无人机、相机和计算平台 IP54")
+    assert result["hard_constraints"]["specified_protected_device_types"] == [
+        "drone", "sensor", "computer"
+    ]
+
+
+def test_protection_scope_after_ip_rating_is_preserved():
+    result = parse_task_requirements("IP67 防护要求适用于无人机和传感器")
+    hard = result["hard_constraints"]
+    assert hard["protection_scope"] == "specified_devices"
+    assert hard["specified_protected_device_types"] == ["drone", "sensor"]
+
+
+def test_protection_scope_does_not_capture_device_from_previous_requirement():
+    result = parse_task_requirements("无人机续航至少30分钟，传感器 IP67")
+    hard = result["hard_constraints"]
+    assert hard["protection_scope"] == "specified_devices"
+    assert hard["specified_protected_device_types"] == ["sensor"]
+
+
+@pytest.mark.parametrize("connector", ["且", "并且", "同时"])
+def test_protection_scope_stops_at_requirement_conjunction(connector):
+    result = parse_task_requirements(f"无人机续航至少30分钟{connector}传感器需IP67")
+    hard = result["hard_constraints"]
+    assert hard["protection_scope"] == "specified_devices"
+    assert hard["specified_protected_device_types"] == ["sensor"]
+
+
+def test_protection_scope_keeps_device_enumeration_conjunction():
+    result = parse_task_requirements("无人机和传感器均需IP67")
+    hard = result["hard_constraints"]
+    assert hard["protection_scope"] == "specified_devices"
+    assert hard["specified_protected_device_types"] == ["drone", "sensor"]
+
+
 def test_data_and_mechanical_interfaces_are_separate():
     result = parse_task_requirements("数据接口要求 USB3 和千兆网，机械接口使用通用安装板")
     assert result["hard_constraints"]["required_data_interfaces"] == ["USB3", "ETHERNET"]

@@ -156,6 +156,29 @@ def parse_task_requirements(text: str) -> dict[str, Any]:
     match = first(r"(?:至少|不低于|防护等级(?:要求)?(?:为|是)?\s*)?(?P<rating>IP\s*\d{2})", re.IGNORECASE)
     if match:
         record("protection_rating", re.sub(r"\s+", "", match["rating"]).upper(), match)
+        requirement_boundary = re.compile(r"并且|同时|且|[，,；;。\n]")
+        preceding_boundaries = list(requirement_boundary.finditer(text, 0, match.start()))
+        clause_start = preceding_boundaries[-1].end() if preceding_boundaries else 0
+        following_boundary = requirement_boundary.search(text, match.end())
+        clause_end = following_boundary.start() if following_boundary else len(text)
+        clause = text[clause_start:clause_end]
+        if re.search(r"(?:整套系统|整套设备|全部设备|所有设备)", clause):
+            scope = "all_devices"
+            specified_types: list[str] = []
+        else:
+            device_terms = (
+                ("drone", r"无人机|飞行平台"),
+                ("sensor", r"传感器|相机|雷达"),
+                ("computer", r"计算平台|计算机|工控机|边缘计算"),
+            )
+            specified_types = [device_type for device_type, pattern in device_terms if re.search(pattern, clause)]
+            scope = "specified_devices" if specified_types else "exposed_devices"
+        normalized["protection_scope"] = scope
+        hard["protection_scope"] = scope
+        evidence["protection_scope"] = list(evidence["protection_rating"])
+        normalized["specified_protected_device_types"] = specified_types
+        hard["specified_protected_device_types"] = specified_types
+        evidence["specified_protected_device_types"] = list(evidence["protection_rating"])
 
     # Interfaces use conservative, explicit vocabularies.
     interface_aliases = {
