@@ -60,15 +60,37 @@
         document.getElementById('v-priority').textContent = req.priority || '均衡';
 
         function goToCandidates() {
-            const params = new URLSearchParams();
-            if (req.budget) params.append('budget', req.budget);
-            if (req.maxPayload) params.append('maxPayload', req.maxPayload);
-            if (req.minFlightTime) params.append('minFlightTime', req.minFlightTime);
-            if (req.requiredFunctions && req.requiredFunctions.length > 0) {
-                params.append('functions', req.requiredFunctions.join(','));
-            }
-            window.location.href = 'candidate_devices.html?' + params.toString();
+            // requirements is the single structured hand-off between the three pages.
+            // Do not rebuild it from the natural-language task description here.
+            localStorage.setItem('requirements', JSON.stringify(req));
+            window.location.href = 'candidate_devices.html';
         }
+    </script>
+    <script>
+        (function renderSemanticConfirmation() {
+            const semantic = JSON.parse(localStorage.getItem('semanticResponse') || 'null');
+            const grid = document.querySelector('.grid');
+            if (!semantic || !grid) return;
+            const parsed = (semantic.parsed_requirements || {}).normalized_constraints || {};
+            const fields = [
+                ['请求状态', semantic.request_status || '未知'],
+                ['解析后的任务要求', JSON.stringify(parsed, null, 2)],
+                ['缺失字段', (semantic.missing_device_fields || []).join('、') || '无'],
+                ['需要澄清', (semantic.clarification_questions || []).join('；') || '无']
+            ];
+            fields.forEach(([label, value]) => {
+                const item = document.createElement('div');
+                item.className = 'item';
+                const labelElement = document.createElement('label');
+                labelElement.textContent = label;
+                const valueElement = document.createElement('div');
+                valueElement.className = 'value';
+                valueElement.style.whiteSpace = 'pre-wrap';
+                valueElement.textContent = value;
+                item.append(labelElement, valueElement);
+                grid.appendChild(item);
+            });
+        })();
     </script>
 </body>
 </html>

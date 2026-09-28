@@ -44,6 +44,8 @@
             <span>⏱️ 续航 ≥ <strong id="s-flightTime">—</strong></span>
             <span>📦 载荷 ≤ <strong id="s-payload">—</strong></span>
             <span>🔧 功能: <strong id="s-functions">—</strong></span>
+            <span>🌦️ 环境: <strong id="s-environment">—</strong></span>
+            <span>🎯 优先目标: <strong id="s-priority">—</strong></span>
         </div>
 
         <div id="deviceList">
@@ -58,16 +60,22 @@
             return (v === null || v === undefined || v === '' || v === 'nan') ? '—' : v;
         }
 
-        const urlParams = new URLSearchParams(window.location.search);
-        const budget = urlParams.get('budget');
-        const maxPayload = urlParams.get('maxPayload');
-        const minFlightTime = urlParams.get('minFlightTime');
-        const functions = urlParams.get('functions');
+        const confirmedRequirements = JSON.parse(localStorage.getItem('requirements') || '{}');
+        const budget = confirmedRequirements.budget;
+        const maxPayload = confirmedRequirements.maxPayload;
+        const minFlightTime = confirmedRequirements.minFlightTime;
+        const functions = (confirmedRequirements.requiredFunctions || []).join(', ');
 
         document.getElementById('s-budget').textContent = budget ? '¥' + budget : '不限';
         document.getElementById('s-flightTime').textContent = minFlightTime ? minFlightTime + 'min' : '不限';
         document.getElementById('s-payload').textContent = maxPayload ? maxPayload + 'kg' : '不限';
         document.getElementById('s-functions').textContent = functions || '不限';
+        document.getElementById('s-environment').textContent = confirmedRequirements.environment || '通用';
+        document.getElementById('s-priority').textContent = confirmedRequirements.priority || '均衡';
+
+        function deviceLabel(name, id) {
+            return name ? `${name}（${id}）` : id;
+        }
 
         async function loadRecommendations(requirements) {
             const payload = {
@@ -185,7 +193,67 @@
             }
         }
 
-        init();
+        // D4 uses the semantic response already stored by task_input.html.
+    </script>
+    <script>
+        function semanticStatusClass(status) {
+            if (status === 'pass' || status === 'satisfied') return 'status-pass';
+            if (status === 'fail' || status === 'rejected') return 'status-fail';
+            return 'status-manual';
+        }
+
+        function renderSemanticCandidates(result) {
+            const container = document.getElementById('deviceList');
+            const items = (((result || {}).recommendation || {}).items || []);
+            if (!result) throw new Error('未找到语义推荐结果，请从任务输入页重新开始');
+            if (result.request_status === 'needs_clarification') {
+                container.innerHTML = `<div class="error">需要澄清：${(result.clarification_questions || []).join('；') || '请重新确认任务要求'}</div>`;
+                document.getElementById('totalBadge').textContent = '需要澄清';
+                return;
+            }
+            if (result.request_status === 'not_evaluated') {
+                container.innerHTML = '<div class="empty">当前要求未执行推荐，请确认不支持的约束。</div>';
+                document.getElementById('totalBadge').textContent = '未评估';
+                return;
+            }
+            if (!items.length) {
+                container.innerHTML = '<div class="empty">筛选后没有候选组合，推荐状态为 none。</div>';
+                document.getElementById('totalBadge').textContent = '无候选';
+                return;
+            }
+            container.innerHTML = items.slice(0, 3).map((combo, index) => {
+                const constraints = (combo.constraint_results || []).map(item =>
+                    `<span class="combo-status ${semanticStatusClass(item.status)}">${item.constraint_id}: ${item.status}</span>`
+                ).join(' ');
+                const rules = (combo.rule_results || []).map(item =>
+                    `<div class="specs"><strong>${item.rule_id}: ${item.status}</strong> · ${item.reason}` +
+                    `${(item.missing_fields || []).length ? ` · 缺失：${item.missing_fields.join('、')}` : ''}</div>`
+                ).join('');
+                return `<div class="category-section">
+                    <div class="category-title">候选组合 ${index + 1}<span class="combo-status status-manual">暂定推荐/待人工复核</span></div>
+                    <div class="device-grid">
+                        <div class="device-card"><div class="model">无人机</div><div class="brand">${deviceLabel(combo.drone_name, combo.drone_id)}</div></div>
+                        <div class="device-card"><div class="model">传感器</div><div class="brand">${(combo.sensor_ids || []).map((id, i) => deviceLabel((combo.sensor_names || [])[i], id)).join('、')}</div></div>
+                        <div class="device-card"><div class="model">计算平台</div><div class="brand">${deviceLabel(combo.computer_name, combo.computer_id)}</div></div>
+                    </div>
+                    <div class="specs">筛选结果：${constraints || '无可执行约束结果'}</div>
+                    ${rules}
+                </div>`;
+            }).join('');
+            const link = document.createElement('a');
+            link.href = 'initial_solution.html';
+            link.className = 'badge';
+            link.textContent = '查看初步方案 →';
+            container.appendChild(link);
+            document.getElementById('totalBadge').textContent = `展示 ${Math.min(items.length, 3)} 个候选组合`;
+        }
+
+        try {
+            renderSemanticCandidates(JSON.parse(localStorage.getItem('semanticResponse') || 'null'));
+        } catch (error) {
+            document.getElementById('deviceList').innerHTML = `<div class="error">接口结果读取失败：${error.message}</div>`;
+            document.getElementById('totalBadge').textContent = '读取失败';
+        }
     </script>
 </body>
 </html>

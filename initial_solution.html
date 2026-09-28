@@ -67,5 +67,47 @@
             <a href="task_input.html" class="btn-restart">🔄 重新输入</a>
         </div>
     </div>
+    <script>
+        function deviceLabel(name, id) {
+            return name ? `${name}（${id}）` : id;
+        }
+
+        (function renderSemanticSolutions() {
+            const result = JSON.parse(localStorage.getItem('semanticResponse') || 'null');
+            const grid = document.getElementById('solutionGrid');
+            const checklist = document.querySelector('.checklist');
+            const items = result && result.recommendation && result.recommendation.items || [];
+            if (!result) {
+                grid.innerHTML = '<div class="note">未找到推荐结果，请从任务输入页重新开始。</div>';
+                return;
+            }
+            if (!items.length) {
+                const message = result.request_status === 'needs_clarification'
+                    ? `需要澄清：${(result.clarification_questions || []).join('；')}`
+                    : '没有候选组合，当前推荐状态为 none。';
+                grid.innerHTML = `<div class="note">${message}</div>`;
+                checklist.innerHTML = '';
+                return;
+            }
+            grid.innerHTML = items.slice(0, 3).map((combo, index) => `
+                <div class="card">
+                    <div class="role">组合 ${index + 1} · 暂定推荐/待人工复核</div>
+                    <div class="model">无人机：${deviceLabel(combo.drone_name, combo.drone_id)}</div>
+                    <div class="brand">传感器：${(combo.sensor_ids || []).map((id, i) => deviceLabel((combo.sensor_names || [])[i], id)).join('、')}</div>
+                    <div class="detail">计算平台：${deviceLabel(combo.computer_name, combo.computer_id)}</div>
+                    <div class="detail">score：${combo.score}</div>
+                    <div class="detail">missing_fields：${(combo.missing_fields || []).join('、') || '无'}</div>
+                    <div class="detail">combination_verified：${combo.combination_verified}</div>
+                    <div class="detail">recommendation_disposition：${combo.recommendation_disposition}</div>
+                </div>`).join('');
+            checklist.innerHTML = '<h4>R01-R07 规则结果</h4>' + items.slice(0, 3).map((combo, index) =>
+                `<div class="note"><strong>组合 ${index + 1}</strong>${(combo.rule_results || []).map(rule =>
+                    `<div class="checklist-item"><span>${rule.rule_id}：${rule.reason}</span><span>${rule.status}</span></div>`
+                ).join('')}</div>`
+            ).join('');
+            const notice = document.querySelector('.container > .note');
+            if (notice) notice.textContent = '所有展示结果均为暂定推荐/待人工复核；组合验证完成前不得视为最终推荐。';
+        })();
+    </script>
 </body>
 </html>
