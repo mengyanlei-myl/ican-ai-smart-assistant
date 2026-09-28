@@ -446,7 +446,7 @@ def create_app(config_override=None):
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             raise ApiValidationError('请求体必须是 JSON 对象')
-        allowed_fields = {'text', 'top_n', 'allow_manual_review', 'weights'}
+        allowed_fields = {'text', 'top_n', 'allow_manual_review', 'weights', 'confirmed_requirements'}
         unknown_fields = sorted(set(payload) - allowed_fields)
         if unknown_fields:
             raise ApiValidationError(f"不允许的请求字段: {', '.join(unknown_fields)}")
@@ -464,8 +464,13 @@ def create_app(config_override=None):
         weights = payload.get('weights', {})
         if not isinstance(weights, dict):
             raise ApiValidationError('weights 必须是对象')
+        confirmed_requirements = payload.get('confirmed_requirements', {})
+        if not isinstance(confirmed_requirements, dict):
+            raise ApiValidationError('confirmed_requirements 必须是对象')
         return jsonify(recommend_from_text(
-            text, top_n, allow_manual, weights, db_path=app.config['DATABASE_PATH']
+            text, top_n, allow_manual, weights,
+            confirmed_requirements=confirmed_requirements,
+            db_path=app.config['DATABASE_PATH']
         ))
 
     @app.route('/api/v2/stats', methods=['GET'])

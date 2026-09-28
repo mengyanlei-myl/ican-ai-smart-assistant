@@ -68,6 +68,10 @@
         </div>
     </div>
     <script>
+        function deviceLabel(name, id) {
+            return name ? `${name}（${id}）` : id;
+        }
+
         (function renderSemanticSolutions() {
             const result = JSON.parse(localStorage.getItem('semanticResponse') || 'null');
             const grid = document.getElementById('solutionGrid');
@@ -88,9 +92,9 @@
             grid.innerHTML = items.slice(0, 3).map((combo, index) => `
                 <div class="card">
                     <div class="role">组合 ${index + 1} · 暂定推荐/待人工复核</div>
-                    <div class="model">无人机：${combo.drone_id}</div>
-                    <div class="brand">传感器：${(combo.sensor_ids || []).join('、')}</div>
-                    <div class="detail">计算平台：${combo.computer_id}</div>
+                    <div class="model">无人机：${deviceLabel(combo.drone_name, combo.drone_id)}</div>
+                    <div class="brand">传感器：${(combo.sensor_ids || []).map((id, i) => deviceLabel((combo.sensor_names || [])[i], id)).join('、')}</div>
+                    <div class="detail">计算平台：${deviceLabel(combo.computer_name, combo.computer_id)}</div>
                     <div class="detail">score：${combo.score}</div>
                     <div class="detail">missing_fields：${(combo.missing_fields || []).join('、') || '无'}</div>
                     <div class="detail">combination_verified：${combo.combination_verified}</div>

@@ -60,14 +60,10 @@
         document.getElementById('v-priority').textContent = req.priority || '均衡';
 
         function goToCandidates() {
-            const params = new URLSearchParams();
-            if (req.budget) params.append('budget', req.budget);
-            if (req.maxPayload) params.append('maxPayload', req.maxPayload);
-            if (req.minFlightTime) params.append('minFlightTime', req.minFlightTime);
-            if (req.requiredFunctions && req.requiredFunctions.length > 0) {
-                params.append('functions', req.requiredFunctions.join(','));
-            }
-            window.location.href = 'candidate_devices.html?' + params.toString();
+            // requirements is the single structured hand-off between the three pages.
+            // Do not rebuild it from the natural-language task description here.
+            localStorage.setItem('requirements', JSON.stringify(req));
+            window.location.href = 'candidate_devices.html';
         }
     </script>
     <script>
@@ -95,10 +91,6 @@
                 grid.appendChild(item);
             });
         })();
-
-        function goToCandidates() {
-            window.location.href = 'candidate_devices.html';
-        }
     </script>
 </body>
 </html>

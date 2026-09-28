@@ -15,6 +15,7 @@ def test_task_page_calls_semantic_endpoint_with_top_three():
     assert "/api/v2/recommendations/semantic" in html
     assert "top_n: 3" in html
     assert "semanticResponse" in html
+    assert "confirmed_requirements: requirements" in html
 
 
 def test_confirmation_and_candidate_pages_use_semantic_response():
@@ -25,6 +26,12 @@ def test_confirmation_and_candidate_pages_use_semantic_response():
     assert "missing_device_fields" in confirmation
     assert "semanticResponse" in candidates
     assert "暂定推荐/待人工复核" in candidates
+    assert confirmation.count("function goToCandidates()") == 1
+    assert "localStorage.getItem('requirements')" in candidates
+    for field in ("budget", "minFlightTime", "maxPayload", "requiredFunctions", "environment", "priority"):
+        assert field in candidates
+    assert "deviceLabel(combo.drone_name, combo.drone_id)" in candidates
+    assert "combo.rule_results" in candidates
 
 
 def test_initial_solution_displays_required_d3_fields_and_all_rules():
@@ -37,6 +44,32 @@ def test_initial_solution_displays_required_d3_fields_and_all_rules():
     assert "slice(0, 3)" in html
     assert "暂定推荐/待人工复核" in html
     assert "最终推荐" in html
+    assert "deviceLabel(combo.drone_name, combo.drone_id)" in html
+
+
+def test_semantic_request_preserves_confirmed_requirements_and_device_names():
+    client = create_app({"TESTING": True}).test_client()
+    confirmed = {
+        "taskDesc": "至少续航30分钟",
+        "budget": "50000",
+        "minFlightTime": "30",
+        "maxPayload": "0",
+        "requiredFunctions": [],
+        "environment": "通用",
+        "priority": "均衡",
+    }
+    response = client.post("/api/v2/recommendations/semantic", json={
+        "text": confirmed["taskDesc"],
+        "top_n": 3,
+        "allow_manual_review": True,
+        "weights": {},
+        "confirmed_requirements": confirmed,
+    })
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["confirmed_requirements"] == confirmed
+    for item in body["recommendation"]["items"]:
+        assert {"drone_name", "sensor_names", "computer_name"} <= item.keys()
 
 
 def test_semantic_api_frontend_smoke_returns_at_most_three_combinations():

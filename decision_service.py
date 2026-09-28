@@ -26,6 +26,15 @@ DEFAULT_WEIGHTS = {
 }
 
 
+def device_display_name(device: dict[str, Any]) -> str | None:
+    """Return an existing human-readable name without changing the device ID."""
+    for key in ("model_name", "name", "device_name", "型号", "model"):
+        value = device.get(key)
+        if not is_empty(value):
+            return str(value).strip()
+    return None
+
+
 class ApiValidationError(ValueError):
     pass
 
@@ -268,6 +277,9 @@ def recommend(db_path: str | Path, requirements: dict[str, Any], top_n: int, all
         ids = (drone["_device_id"], sensor["_device_id"], computer["_device_id"])
         item = {
             "drone_id": ids[0], "sensor_ids": [ids[1]], "computer_id": ids[2],
+            "drone_name": device_display_name(drone),
+            "sensor_names": [device_display_name(sensor)],
+            "computer_name": device_display_name(computer),
             "overall_status": status, "score": score, "score_breakdown": breakdown,
             "coverage": coverage, "confidence": coverage,
             "rule_results": result["rule_results"], "missing_fields": result["missing_fields"],
@@ -379,6 +391,9 @@ def evaluate_semantic_candidates(
             ]
             evaluated_items.append({
                 **candidate,
+                "drone_name": device_display_name(drone),
+                "sensor_names": [device_display_name(sensor) for sensor in sensors],
+                "computer_name": device_display_name(computer),
                 "score": score,
                 "score_breakdown": breakdown,
                 "coverage": coverage,

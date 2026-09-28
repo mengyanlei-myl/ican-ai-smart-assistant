@@ -31,6 +31,7 @@ def recommend_from_text(
     allow_manual_review: bool = True,
     weights: dict[str, Any] | None = None,
     *,
+    confirmed_requirements: dict[str, Any] | None = None,
     db_path: str | None = None,
 ) -> dict[str, Any]:
     """Parse text once and return a safely gated, deterministic response."""
@@ -107,6 +108,7 @@ def recommend_from_text(
         reason = "trusted_candidates_provisional" if items else "no_candidates_after_d2_constraints"
 
     return {
+        "confirmed_requirements": dict(confirmed_requirements or {}),
         "request_status": request_status,
         "parsed_requirements": parsed_requirements,
         "clarification_questions": clarification_questions,

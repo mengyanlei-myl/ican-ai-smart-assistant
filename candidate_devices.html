@@ -44,6 +44,8 @@
             <span>⏱️ 续航 ≥ <strong id="s-flightTime">—</strong></span>
             <span>📦 载荷 ≤ <strong id="s-payload">—</strong></span>
             <span>🔧 功能: <strong id="s-functions">—</strong></span>
+            <span>🌦️ 环境: <strong id="s-environment">—</strong></span>
+            <span>🎯 优先目标: <strong id="s-priority">—</strong></span>
         </div>
 
         <div id="deviceList">
@@ -58,16 +60,22 @@
             return (v === null || v === undefined || v === '' || v === 'nan') ? '—' : v;
         }
 
-        const urlParams = new URLSearchParams(window.location.search);
-        const budget = urlParams.get('budget');
-        const maxPayload = urlParams.get('maxPayload');
-        const minFlightTime = urlParams.get('minFlightTime');
-        const functions = urlParams.get('functions');
+        const confirmedRequirements = JSON.parse(localStorage.getItem('requirements') || '{}');
+        const budget = confirmedRequirements.budget;
+        const maxPayload = confirmedRequirements.maxPayload;
+        const minFlightTime = confirmedRequirements.minFlightTime;
+        const functions = (confirmedRequirements.requiredFunctions || []).join(', ');
 
         document.getElementById('s-budget').textContent = budget ? '¥' + budget : '不限';
         document.getElementById('s-flightTime').textContent = minFlightTime ? minFlightTime + 'min' : '不限';
         document.getElementById('s-payload').textContent = maxPayload ? maxPayload + 'kg' : '不限';
         document.getElementById('s-functions').textContent = functions || '不限';
+        document.getElementById('s-environment').textContent = confirmedRequirements.environment || '通用';
+        document.getElementById('s-priority').textContent = confirmedRequirements.priority || '均衡';
+
+        function deviceLabel(name, id) {
+            return name ? `${name}（${id}）` : id;
+        }
 
         async function loadRecommendations(requirements) {
             const payload = {
@@ -217,14 +225,19 @@
                 const constraints = (combo.constraint_results || []).map(item =>
                     `<span class="combo-status ${semanticStatusClass(item.status)}">${item.constraint_id}: ${item.status}</span>`
                 ).join(' ');
+                const rules = (combo.rule_results || []).map(item =>
+                    `<div class="specs"><strong>${item.rule_id}: ${item.status}</strong> · ${item.reason}` +
+                    `${(item.missing_fields || []).length ? ` · 缺失：${item.missing_fields.join('、')}` : ''}</div>`
+                ).join('');
                 return `<div class="category-section">
                     <div class="category-title">候选组合 ${index + 1}<span class="combo-status status-manual">暂定推荐/待人工复核</span></div>
                     <div class="device-grid">
-                        <div class="device-card"><div class="model">无人机</div><div class="brand">${combo.drone_id}</div></div>
-                        <div class="device-card"><div class="model">传感器</div><div class="brand">${(combo.sensor_ids || []).join('、')}</div></div>
-                        <div class="device-card"><div class="model">计算平台</div><div class="brand">${combo.computer_id}</div></div>
+                        <div class="device-card"><div class="model">无人机</div><div class="brand">${deviceLabel(combo.drone_name, combo.drone_id)}</div></div>
+                        <div class="device-card"><div class="model">传感器</div><div class="brand">${(combo.sensor_ids || []).map((id, i) => deviceLabel((combo.sensor_names || [])[i], id)).join('、')}</div></div>
+                        <div class="device-card"><div class="model">计算平台</div><div class="brand">${deviceLabel(combo.computer_name, combo.computer_id)}</div></div>
                     </div>
                     <div class="specs">筛选结果：${constraints || '无可执行约束结果'}</div>
+                    ${rules}
                 </div>`;
             }).join('');
             const link = document.createElement('a');
